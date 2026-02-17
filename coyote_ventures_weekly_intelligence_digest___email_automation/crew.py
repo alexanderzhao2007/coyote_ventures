@@ -10,6 +10,7 @@ from crewai_tools import (
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.article_extractor import ArticleExtractorTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.thesis_article_comparison_tool import ThesisArticleComparisonTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_write_candidates import SupabaseWriteCandidatesTool
+from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_read_candidates import SupabaseReadCandidatesTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_write_content import SupabaseWriteContentTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_write_evaluations import SupabaseWriteEvaluationsTool
 
@@ -40,7 +41,7 @@ class CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew:
             llm=LLM(
                 model="openai/gpt-4o-mini",
                 temperature=0.4,
-                max_tokens=8192,
+                max_tokens=16384,
             ),
             response_format=self._load_response_format("healthcare_news_discovery_specialist"),
         )
@@ -52,7 +53,7 @@ class CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew:
             config=self.agents_config["article_harvester"],
             
             
-            tools=[ArticleExtractorTool(), SupabaseWriteContentTool()],
+            tools=[SupabaseReadCandidatesTool(), ArticleExtractorTool(), SupabaseWriteContentTool()],
             reasoning=False,
             max_reasoning_attempts=None,
             inject_date=True,

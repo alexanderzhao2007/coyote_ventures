@@ -50,10 +50,32 @@ class SupabaseWriteCandidatesTool(BaseTool):
         import sys
         try:
             data = json.loads(articles_json)
-            if not isinstance(data, list):
-                return json.dumps({"error": "articles_json must be a JSON array", "inserted": 0})
         except json.JSONDecodeError as e:
-            return json.dumps({"error": f"Invalid JSON: {e}", "inserted": 0})
+            print(f"[supabase_write_candidates] Invalid JSON: {e}", file=sys.stderr)
+            return json.dumps(
+                {
+                    "error": f"Invalid JSON: {e}",
+                    "received": 0,
+                    "inserted": 0,
+                    "skipped_duplicates": 0,
+                    "skipped_missing_url": 0,
+                }
+            )
+
+        # Accept either a JSON array or { "candidate_articles": [...] } from the agent's response format
+        if isinstance(data, dict) and "candidate_articles" in data:
+            data = data["candidate_articles"]
+        if not isinstance(data, list):
+            print(f"[supabase_write_candidates] Expected JSON array or {{candidate_articles: [...]}}, got {type(data).__name__}", file=sys.stderr)
+            return json.dumps(
+                {
+                    "error": "articles_json must be a JSON array or object with 'candidate_articles' array",
+                    "received": 0,
+                    "inserted": 0,
+                    "skipped_duplicates": 0,
+                    "skipped_missing_url": 0,
+                }
+            )
 
         n_articles = len(data)
         print(f"[supabase_write_candidates] Called with {n_articles} articles.", file=sys.stderr)
@@ -63,21 +85,40 @@ class SupabaseWriteCandidatesTool(BaseTool):
         if not supabase_url or not key:
             msg = "SUPABASE_URL and SUPABASE_SERVICE_KEY must be set in environment"
             print(f"[supabase_write_candidates] {msg}", file=sys.stderr)
-            return json.dumps({"error": msg, "inserted": 0})
+            return json.dumps(
+                {
+                    "error": msg,
+                    "received": n_articles,
+                    "inserted": 0,
+                    "skipped_duplicates": 0,
+                    "skipped_missing_url": 0,
+                }
+            )
 
         try:
             from supabase import create_client
             client = create_client(supabase_url, key)
         except Exception as e:
-            return json.dumps({"error": f"Supabase client: {e}", "inserted": 0})
+            return json.dumps(
+                {
+                    "error": f"Supabase client: {e}",
+                    "received": n_articles,
+                    "inserted": 0,
+                    "skipped_duplicates": 0,
+                    "skipped_missing_url": 0,
+                }
+            )
 
         inserted = 0
+        skipped_duplicates = 0
+        skipped_missing_url = 0
         for item in data:
             if not isinstance(item, dict):
                 continue
             url_val = item.get("url") or item.get("URL")
             title_val = item.get("title") or item.get("Title") or ""
             if not url_val:
+                skipped_missing_url += 1
                 continue
             source_val = item.get("source") or item.get("Source")
             pub_raw = item.get("published_date") or item.get("Published Date") or item.get("published_date")
@@ -96,8 +137,27 @@ class SupabaseWriteCandidatesTool(BaseTool):
                 inserted += 1
             except Exception as e:
                 if "duplicate" in str(e).lower() or "unique" in str(e).lower() or "23505" in str(e):
+                    skipped_duplicates += 1
                     continue
                 print(f"[supabase_write_candidates] Insert failed: {e}", file=sys.stderr)
-                return json.dumps({"error": str(e), "inserted": inserted})
+                return json.dumps(
+                    {
+                        "error": str(e),
+                        "received": n_articles,
+                        "inserted": inserted,
+                        "skipped_duplicates": skipped_duplicates,
+                        "skipped_missing_url": skipped_missing_url,
+                    }
+                )
 
-        return json.dumps({"inserted": inserted, "message": f"Inserted {inserted} rows into coyote_candidates."})
+        if skipped_duplicates:
+            print(f"[supabase_write_candidates] Inserted {inserted} rows, skipped {skipped_duplicates} duplicate URL(s).", file=sys.stderr)
+        return json.dumps(
+            {
+                "received": n_articles,
+                "inserted": inserted,
+                "skipped_duplicates": skipped_duplicates,
+                "skipped_missing_url": skipped_missing_url,
+                "message": f"Inserted {inserted} rows into coyote_candidates.",
+            }
+        )

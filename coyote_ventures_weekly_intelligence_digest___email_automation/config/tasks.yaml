@@ -7,28 +7,34 @@ search_for_candidate_articles:
     older than 14 days.
 
     The 12 required keywords (search each once):
-    health startup valuation, women's health, health funding, health legislation,
-    health investment, healthcare innovation, health equity, health access,
+    health startup valuation, health tech, health funding, health legislation,
+    health investment, healthcare innovation, health equity, health policy,
     AI health, virtual health, care model, health conference.
 
-    Call supabase_write_candidates with a JSON array of every article. Then output
-    the full CANDIDATE_ARTICLES list (title, URL, source, published date, snippet)
-    and a SEARCH LOG listing all 12 queries and article count per query. Do not
-    truncate the list.
+    After EACH search, immediately call supabase_write_candidates with that search's
+    results (a JSON array of up to 5 articles: url, title, source, published_date,
+    snippet). This avoids a single huge tool payload getting truncated and ensures
+    all unique URLs are available in Supabase even if terminal output is cut off.
+
+    After completing all 12 searches (and 12 insert calls), output the full
+    CANDIDATE_ARTICLES list (title, URL, source, published date, snippet) and a
+    SEARCH LOG listing all 12 queries and article count per query. Do not truncate
+    the list.
   expected_output: |
     TOTAL ARTICLES COLLECTED: [count]
-    CANDIDATE_ARTICLES: numbered list of every article (title, URL, source, date, snippet).
+    CANDIDATE_ARTICLES: numbered list 60 articles (title, URL, source, date, snippet).
     SEARCH LOG: all 12 search queries and how many articles each returned.
   agent: healthcare_news_discovery_specialist
   async_execution: true
 
 extract_article_content:
   description: |
-    Take the CANDIDATE_ARTICLES from the previous task. For each URL, extract full
-    text with the article_extractor tool. Reject articles with under 200 characters.
-    Call supabase_write_content with a JSON array of extracted articles (url, content,
-    extraction_status, word_count, author). Output the full FULL_TEXT_ARTICLES list
-    and a brief summary (total processed, passed, rejected with URLs).
+    Get the full list of candidate articles by calling supabase_read_candidates (with limit=100)
+    so you have every URL the Discovery agent wrote—the previous task output may be truncated.
+    For each URL, extract full text with the article_extractor tool. Reject articles with under
+    200 characters. Call supabase_write_content with a JSON array of extracted articles (url,
+    content, extraction_status, word_count, author). Output a summary (total processed, passed,
+    rejected with URLs). Do not truncate: process every URL returned by supabase_read_candidates.
   expected_output: |
     FULL_TEXT_ARTICLES: list with url, title, author, published_date, extracted_text,
     extraction_status. Summary: total_processed, passed_length_filter,

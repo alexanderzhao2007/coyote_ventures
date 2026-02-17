@@ -2,6 +2,15 @@
 import os
 import sys
 
+# Use UTF-8 for stdout/stderr on Windows so CrewAI event bus (emoji) doesn't cause
+# "Sync handler error" and event pairing mismatch warnings
+if sys.platform == "win32":
+    import io
+    if hasattr(sys.stdout, "buffer"):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "buffer"):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 # Load .env from project root so SUPABASE_* and API keys are set when tools run
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _env_path = os.path.join(_root, ".env")
