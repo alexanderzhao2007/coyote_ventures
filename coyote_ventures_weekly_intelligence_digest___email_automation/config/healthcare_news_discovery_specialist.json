@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "title": "Response Format",
+  "required": ["candidate_articles"],
+  "properties": {
+    "candidate_articles": {
+      "type": "array",
+      "description": "Array of candidate articles ready for Supabase coyote_candidates. Pass this array to supabase_write_candidates.",
+      "items": {
+        "type": "object",
+        "required": ["url", "title"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Article URL"
+          },
+          "title": {
+            "type": "string",
+            "description": "Article title"
+          },
+          "source": {
+            "type": "string",
+            "description": "Publication or source name"
+          },
+          "published_date": {
+            "type": "string",
+            "description": "Publication date (YYYY-MM-DD preferred)"
+          },
+          "snippet": {
+            "type": "string",
+            "description": "Short snippet or summary from search"
+          }
+        }
+      }
+    },
+    "total_articles_collected": {
+      "type": "integer",
+      "description": "Total number of articles collected across all 12 searches"
+    },
+    "search_log": {
+      "type": "array",
+      "description": "One entry per search query with article count",
+      "items": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "article_count": { "type": "integer" }
+        }
+      }
+    }
+  }
+}

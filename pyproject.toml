@@ -1,0 +1,32 @@
+[project]
+name = "coyote_ventures_weekly_intelligence_digest___email_automation"
+version = "0.1.0"
+description = "coyote_ventures_weekly_intelligence_digest___email_automation using crewAI"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "crewai[litellm,tools]==1.9.3",
+    "jambo",
+    "supabase",
+    "playwright>=1.49",
+    "trafilatura>=2.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+coyote_ventures_weekly_intelligence_digest___email_automation = "coyote_ventures_weekly_intelligence_digest___email_automation.main:run"
+run_crew = "coyote_ventures_weekly_intelligence_digest___email_automation.main:run"
+train = "coyote_ventures_weekly_intelligence_digest___email_automation.main:train"
+replay = "coyote_ventures_weekly_intelligence_digest___email_automation.main:replay"
+test = "coyote_ventures_weekly_intelligence_digest___email_automation.main:test"
+run_with_trigger = "coyote_ventures_weekly_intelligence_digest___email_automation.main:run_with_trigger"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["coyote_ventures_weekly_intelligence_digest___email_automation"]
+
+[tool.crewai]
+type = "crew"
