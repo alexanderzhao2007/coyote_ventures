@@ -25,10 +25,6 @@
           "published_date": {
             "type": "string",
             "description": "Publication date (YYYY-MM-DD preferred)"
-          },
-          "snippet": {
-            "type": "string",
-            "description": "Short snippet or summary from search"
           }
         }
       }

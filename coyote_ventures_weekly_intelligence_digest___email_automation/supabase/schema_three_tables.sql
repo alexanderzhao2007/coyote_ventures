@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS public.coyote_candidates (
   url text PRIMARY KEY,
   title text NOT NULL,
   source text,
-  snippet text,
   published_date date,
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -54,7 +53,6 @@ SELECT
   c.url,
   c.title,
   c.source,
-  c.snippet,
   c.published_date,
   c.created_at,
   ac.content,

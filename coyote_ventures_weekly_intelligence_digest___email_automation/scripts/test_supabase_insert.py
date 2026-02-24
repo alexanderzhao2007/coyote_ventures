@@ -29,16 +29,17 @@ def main():
     test_url = "https://example.com/test-article-" + str(os.getpid())
     test_title = "Test article (insert test)"
 
-    # 1) Insert candidate
+    # 1) Insert candidate (no snippet column used anymore)
     print("1. Inserting into coyote_candidates...")
     try:
-        client.table("coyote_candidates").insert({
-            "url": test_url,
-            "title": test_title,
-            "source": "Test",
-            "snippet": "Insert test run.",
-            "published_date": "2026-02-01",
-        }).execute()
+        client.table("coyote_candidates").insert(
+            {
+                "url": test_url,
+                "title": test_title,
+                "source": "Test",
+                "published_date": "2026-02-01",
+            }
+        ).execute()
         print("   OK: coyote_candidates insert succeeded.")
     except Exception as e:
         print("   FAIL:", e)

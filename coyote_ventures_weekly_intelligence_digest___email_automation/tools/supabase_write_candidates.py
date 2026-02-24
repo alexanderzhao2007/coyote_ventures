@@ -13,7 +13,7 @@ class SupabaseWriteCandidatesInput(BaseModel):
     """Input for writing candidate articles to Supabase."""
     articles_json: str = Field(
         ...,
-        description="JSON array of articles. Each object: url (required), title (required), source (optional), published_date (optional), snippet (optional)."
+        description="JSON array of articles. Each object: url (required), title (required), source (optional), published_date (optional)."
     )
 
 
@@ -41,7 +41,7 @@ class SupabaseWriteCandidatesTool(BaseTool):
     name: str = "supabase_write_candidates"
     description: str = (
         "Insert candidate articles into the Supabase coyote_candidates table (Discovery table). "
-        "Call with a JSON array of articles: url (required), title (required), source (optional), published_date (optional), snippet (optional). "
+        "Call with a JSON array of articles: url (required), title (required), source (optional), published_date (optional). "
         "Duplicate URLs are skipped. Returns the number of rows inserted."
     )
     args_schema: Type[BaseModel] = SupabaseWriteCandidatesInput
@@ -123,13 +123,12 @@ class SupabaseWriteCandidatesTool(BaseTool):
             source_val = item.get("source") or item.get("Source")
             pub_raw = item.get("published_date") or item.get("Published Date") or item.get("published_date")
             published_date_parsed = _parse_published_date(str(pub_raw)) if pub_raw else None
-            snippet_val = item.get("snippet") or item.get("Snippet")
 
             row = {
                 "url": url_val[:2048] if len(url_val) > 2048 else url_val,
                 "title": (title_val or "Untitled")[:2048] if title_val else "Untitled",
                 "source": source_val,
-                "snippet": snippet_val,
+                "snippet": None,
                 "published_date": published_date_parsed,
             }
             try:

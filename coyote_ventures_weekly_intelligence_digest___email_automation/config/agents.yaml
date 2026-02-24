@@ -5,18 +5,18 @@ healthcare_news_discovery_specialist:
     Run exactly 12 news searches—one per required keyword. Use SerplyNewsSearchTool for each;
     the tool returns 5 results per call. After EACH search, immediately call
     supabase_write_candidates with that search's results (a JSON array of up to 5
-    articles: url, title, source, published_date, snippet). Do NOT wait and send one
+    articles: url, title, source, published_date). Do NOT wait and send one
     giant combined payload at the end.
 
     The 12 required keywords (you must search each one exactly once):
     1. health startup valuation
     2. health tech
-    3. health funding
-    4. health legislation
-    5. health investment
+    3. health acquisition
+    4. US health legislation
+    5. electronic health records (EHR) 
     6. healthcare innovation
     7. health equity
-    8. health policy
+    8. digital health technology
     9. AI health
     10. virtual health
     11. care model

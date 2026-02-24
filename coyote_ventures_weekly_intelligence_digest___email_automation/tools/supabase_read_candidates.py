@@ -22,7 +22,7 @@ class SupabaseReadCandidatesTool(BaseTool):
     name: str = "supabase_read_candidates"
     description: str = (
         "Read candidate articles from the Supabase coyote_candidates table. "
-        "Returns a JSON array of objects: url, title, source, published_date, snippet. "
+        "Returns a JSON array of objects: url, title, source, published_date. "
         "Call this to get the complete list of candidates (e.g. after Discovery wrote 60 articles) when the previous task output was truncated."
     )
     args_schema: Type[BaseModel] = SupabaseReadCandidatesInput
@@ -41,7 +41,12 @@ class SupabaseReadCandidatesTool(BaseTool):
 
         try:
             limit = max(1, min(int(limit), 500))
-            result = client.table("coyote_candidates").select("url, title, source, published_date, snippet").limit(limit).execute()
+            result = (
+                client.table("coyote_candidates")
+                .select("url, title, source, published_date")
+                .limit(limit)
+                .execute()
+            )
             rows = result.data or []
             return json.dumps({"articles": rows, "count": len(rows)})
         except Exception as e:
