@@ -2,12 +2,12 @@
 search_for_candidate_articles:
   description: |
     Run 12 distinct news searches—one search per required keyword. Each search must
-    include the date filter "after:YYYY-MM-DD" (today minus 14 days). Use only the
+    include the date filter "after:YYYY-MM-DD" (today minus 7 days). Use only the
     first 5 results returned per search (up to 60 articles total). Reject any article
-    older than 14 days.
+    older than 7 days.
 
     The 12 required keywords (search each once):
-    health startup valuation, health tech, health funding, health legislation,
+    health startup valuation, health tech, health acquisition, US health legislation,
     electronic health records (EHR), healthcare innovation, health equity, digital health technology,
     AI health, virtual health, care model, health conference.
 
@@ -27,35 +27,23 @@ search_for_candidate_articles:
   agent: healthcare_news_discovery_specialist
   async_execution: true
 
-extract_article_content:
-  description: |
-    Get the full list of candidate articles by calling supabase_read_candidates (with limit=100)
-    so you have every URL the Discovery agent wrote—the previous task output may be truncated.
-    For each URL, extract full text with the article_extractor tool. Reject articles with under
-    200 characters. Call supabase_write_content with a JSON array of extracted articles (url,
-    content, extraction_status, word_count, author). Output a summary (total processed, passed,
-    rejected with URLs). Do not truncate: process every URL returned by supabase_read_candidates.
-  expected_output: |
-    FULL_TEXT_ARTICLES: list with url, title, author, published_date, extracted_text,
-    extraction_status. Summary: total_processed, passed_length_filter,
-    rejected_insufficient_content (URLs).
-  agent: article_harvester
-  context:
-    - search_for_candidate_articles
-
 evaluate_investment_relevance:
   description: |
-    Take FULL_TEXT_ARTICLES from the previous task. For each article, use the Thesis
-    Article Comparison Tool with the thesis from {thesis_url}. Score 70+ direct thesis
-    match, 50–69 market intelligence, under 50 reject. Call supabase_write_evaluations
-    with a JSON array (url, relevance_score, confidence_score, signal_type, exec_summary,
-    why_it_matters, thesis_sector, focus_area_tags, geography, companies_mentioned,
-    sent_in_weekly_digest=false). Include only articles with relevance_score ≥50.
-    Output PROCESSED_ARTICLES and a short summary (evaluated, accepted, rejected).
+    CRITICAL: You MUST call the supabase_write_evaluations tool. This task is INCOMPLETE and FAILS if you only output text without calling the tool. The database insertions are the primary deliverable.
+
+    Workflow:
+    1. Call supabase_read_candidates(limit=60). Use ONLY the returned "articles" array as your list of candidates. Do NOT use URLs or titles from the previous task (search) output—those can be truncated or different and cause insert failures.
+    2. For each article in that array, call thesis_title_relevance_tool with thesis from {thesis_url} and that article's title.
+    3. When building each evaluation object, use the EXACT "url" from the same article in the supabase_read_candidates response. Copy the url field; do not take it from task context or anywhere else.
+    4. After every 10 evaluations, call supabase_write_evaluations with evaluations_json set to a JSON string (stringified array of those objects).
+    5. After each call, check "inserted". If many skipped_foreign_key, you are using URLs from the wrong source—use ONLY urls from supabase_read_candidates.
+    6. Repeat until all candidates from step 1 are evaluated and inserted.
+    7. Output PROCESSED_ARTICLES summary.
+
+    Example tool call format:
+    supabase_write_evaluations(evaluations_json='[{"url":"...","relevance_score":65,...}]')
   expected_output: |
-    PROCESSED_ARTICLES: list with url, title, content, relevance_score, confidence_score,
-    signal_type, exec_summary, why_it_matters, thesis_sector, focus_area_tags,
-    geography, companies_mentioned. Summary: total_evaluated, accepted, rejected.
+    First: Evidence that supabase_write_evaluations was called (tool output showing inserted counts). Then: PROCESSED_ARTICLES list and summary (total_evaluated, accepted, rejected). If no tool calls are shown, the task is incomplete.
   agent: thesis_relevance_judge
   context:
-    - extract_article_content
+    - search_for_candidate_articles

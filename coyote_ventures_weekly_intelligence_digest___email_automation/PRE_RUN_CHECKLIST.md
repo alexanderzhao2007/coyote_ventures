@@ -74,7 +74,6 @@ From project root:
 ```bash
 python -c "
 from coyote_ventures_weekly_intelligence_digest___email_automation.crew import CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew
-from coyote_ventures_weekly_intelligence_digest___email_automation.tools.article_extractor import ArticleExtractorTool
 import os
 assert os.getenv('OPENAI_API_KEY'), 'OPENAI_API_KEY not set'
 assert os.getenv('SUPABASE_URL'), 'SUPABASE_URL not set'

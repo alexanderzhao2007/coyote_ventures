@@ -7,11 +7,10 @@ from crewai_tools import (
 	ScrapeWebsiteTool,
 	SerplyNewsSearchTool
 )
-from coyote_ventures_weekly_intelligence_digest___email_automation.tools.article_extractor import ArticleExtractorTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.thesis_article_comparison_tool import ThesisArticleComparisonTool
+from coyote_ventures_weekly_intelligence_digest___email_automation.tools.thesis_title_relevance_tool import ThesisTitleRelevanceTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_write_candidates import SupabaseWriteCandidatesTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_read_candidates import SupabaseReadCandidatesTool
-from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_write_content import SupabaseWriteContentTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_write_evaluations import SupabaseWriteEvaluationsTool
 
 from pydantic import BaseModel
@@ -47,29 +46,6 @@ class CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew:
         )
     
     @agent
-    def article_harvester(self) -> Agent:
-        
-        return Agent(
-            config=self.agents_config["article_harvester"],
-            
-            
-            tools=[SupabaseReadCandidatesTool(), ArticleExtractorTool(), SupabaseWriteContentTool()],
-            reasoning=False,
-            max_reasoning_attempts=None,
-            inject_date=True,
-            allow_delegation=False,
-            max_iter=25,
-            max_rpm=None,
-            
-            max_execution_time=None,
-            llm=LLM(
-                model="openai/gpt-4o-mini",
-                temperature=0.4,
-            ),
-            
-        )
-    
-    @agent
     def thesis_relevance_judge(self) -> Agent:
         
         return Agent(
@@ -79,6 +55,8 @@ class CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew:
             tools=[
                 ScrapeWebsiteTool(website_url="https://www.coyote.ventures/thesis"),
                 ThesisArticleComparisonTool(),
+                SupabaseReadCandidatesTool(),
+                ThesisTitleRelevanceTool(),
                 SupabaseWriteEvaluationsTool(),
             ],
             reasoning=False,
@@ -102,15 +80,6 @@ class CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew:
     def search_for_candidate_articles(self) -> Task:
         return Task(
             config=self.tasks_config["search_for_candidate_articles"],
-            markdown=False,
-            
-            
-        )
-    
-    @task
-    def extract_article_content(self) -> Task:
-        return Task(
-            config=self.tasks_config["extract_article_content"],
             markdown=False,
             
             

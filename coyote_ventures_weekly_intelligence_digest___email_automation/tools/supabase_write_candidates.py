@@ -2,7 +2,7 @@
 
 import os
 import json
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import Type, Optional
 
 from crewai.tools import BaseTool
@@ -112,6 +112,9 @@ class SupabaseWriteCandidatesTool(BaseTool):
         inserted = 0
         skipped_duplicates = 0
         skipped_missing_url = 0
+        skipped_older_than_7_days = 0
+
+        cutoff_date = date.today() - timedelta(days=7)
         for item in data:
             if not isinstance(item, dict):
                 continue
@@ -124,11 +127,21 @@ class SupabaseWriteCandidatesTool(BaseTool):
             pub_raw = item.get("published_date") or item.get("Published Date") or item.get("published_date")
             published_date_parsed = _parse_published_date(str(pub_raw)) if pub_raw else None
 
+            # Enforce 7-day window: skip articles older than 7 days when we have a parsed date
+            if published_date_parsed:
+                try:
+                    pub_dt = datetime.strptime(published_date_parsed, "%Y-%m-%d").date()
+                    if pub_dt < cutoff_date:
+                        skipped_older_than_7_days += 1
+                        continue
+                except ValueError:
+                    # If parsing fails here, fall back to inserting (we already normalized once)
+                    pass
+
             row = {
                 "url": url_val[:2048] if len(url_val) > 2048 else url_val,
                 "title": (title_val or "Untitled")[:2048] if title_val else "Untitled",
                 "source": source_val,
-                "snippet": None,
                 "published_date": published_date_parsed,
             }
             try:
@@ -150,13 +163,19 @@ class SupabaseWriteCandidatesTool(BaseTool):
                 )
 
         if skipped_duplicates:
-            print(f"[supabase_write_candidates] Inserted {inserted} rows, skipped {skipped_duplicates} duplicate URL(s).", file=sys.stderr)
+                print(
+                    f"[supabase_write_candidates] Inserted {inserted} rows, "
+                    f"skipped {skipped_duplicates} duplicate URL(s), "
+                    f"skipped {skipped_older_than_7_days} older-than-7-days article(s).",
+                    file=sys.stderr,
+                )
         return json.dumps(
             {
                 "received": n_articles,
                 "inserted": inserted,
                 "skipped_duplicates": skipped_duplicates,
                 "skipped_missing_url": skipped_missing_url,
+                "skipped_older_than_7_days": skipped_older_than_7_days,
                 "message": f"Inserted {inserted} rows into coyote_candidates.",
             }
         )
