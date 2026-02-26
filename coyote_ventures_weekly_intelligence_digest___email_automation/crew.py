@@ -7,7 +7,6 @@ from crewai_tools import (
 	ScrapeWebsiteTool,
 	SerplyNewsSearchTool
 )
-from coyote_ventures_weekly_intelligence_digest___email_automation.tools.thesis_article_comparison_tool import ThesisArticleComparisonTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.thesis_title_relevance_tool import ThesisTitleRelevanceTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_write_candidates import SupabaseWriteCandidatesTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_read_candidates import SupabaseReadCandidatesTool
@@ -54,7 +53,6 @@ class CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew:
             
             tools=[
                 ScrapeWebsiteTool(website_url="https://www.coyote.ventures/thesis"),
-                ThesisArticleComparisonTool(),
                 SupabaseReadCandidatesTool(),
                 ThesisTitleRelevanceTool(),
                 SupabaseWriteEvaluationsTool(),
@@ -63,7 +61,7 @@ class CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew:
             max_reasoning_attempts=None,
             inject_date=True,
             allow_delegation=False,
-            max_iter=25,
+            max_iter=80,
             max_rpm=None,
             
             max_execution_time=None,

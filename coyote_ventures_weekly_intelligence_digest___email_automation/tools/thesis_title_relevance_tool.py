@@ -42,7 +42,7 @@ class ThesisTitleRelevanceTool(BaseTool):
         "Call with thesis_text and article_title (and optional relevance_context). Returns a result shaped for "
         "supabase_write_evaluations: relevance_score (0-100), confidence_score, signal_type, exec_summary, "
         "why_it_matters, thesis_sector, focus_area_tags, geography, companies_mentioned, rejection_reason. "
-        "Judge adds url per article and passes the array to supabase_write_evaluations."
+        "Judge adds candidate_id (UUID from read_candidates article.id) per article and passes the array to supabase_write_evaluations."
     )
     args_schema: Type[BaseModel] = ThesisTitleRelevanceInput
 

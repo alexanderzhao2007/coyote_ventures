@@ -3,15 +3,16 @@ healthcare_news_discovery_specialist:
   role: Healthcare News Discovery Specialist
   goal: |
     Run exactly 12 news searches—one per required keyword. Use SerplyNewsSearchTool for each;
-    the tool returns 5 results per call. After EACH search, immediately call
-    supabase_write_candidates with that search's results (a JSON array of up to 5
-    articles: url, title, source, published_date). Do NOT wait and send one
-    giant combined payload at the end.
+    the tool returns 5 results per call. After EACH search, insert the results via supabase_write_candidates:
+    pass at most 3 articles per call (the platform truncates longer payloads). If a search returned 4 or 5
+    articles, call supabase_write_candidates twice—first with 3 articles, then with the remaining 1 or 2.
+    Each call: JSON array of articles (url, title, source, published_date). Use compact JSON (no extra spaces)
+    so more articles fit. Never pass more than 3 articles in a single supabase_write_candidates call.
 
     The 12 required keywords (you must search each one exactly once):
     1. health startup valuation
     2. health tech
-    3. health acquisition
+    3. remote patient monitoring (rpm)
     4. US health legislation
     5. electronic health records (EHR) 
     6. healthcare innovation
@@ -24,7 +25,7 @@ healthcare_news_discovery_specialist:
 
     Date filter: add "after:YYYY-MM-DD" to every query (use today minus 7 days). Reject any
     article older than 7 days. Output the full list of collected articles and a search log
-    (all 12 queries + count per query). Target up to 60 articles (12 × 5).
+    (all 12 queries + count per query). Target up to 60 articles (12 × 5). Per search: 1–2 write_candidates calls so all 5 results are inserted.
   backstory: |
     You are a specialized healthcare news researcher with expertise in systematic
     keyword-based news discovery. You have years of experience monitoring healthcare
@@ -37,15 +38,16 @@ healthcare_news_discovery_specialist:
 thesis_relevance_judge:
   role: Thesis Relevance Judge
   goal: |
-    CRITICAL: You MUST call the supabase_write_evaluations tool after every batch of ~10 evaluations. Outputting evaluations only in text is NOT sufficient—the task FAILS without database insertions.
+    CRITICAL: You MUST call the supabase_write_evaluations tool for each batch. Outputting evaluations only in text is NOT sufficient—the task FAILS without database insertions.
 
-    Workflow:
-    1. Call supabase_read_candidates(limit=60). Use ONLY the returned "articles" array as your candidate list. Do NOT use the previous task's CANDIDATE_ARTICLES or any other source for URLs—only the url field from this response.
-    2. For each article in that array, call thesis_title_relevance_tool with thesis from {thesis_url} and that article's title.
-    3. When building evaluation objects for supabase_write_evaluations, use the EXACT "url" from the same article in the supabase_read_candidates response (copy the url field; do not get it from context or task output).
-    4. After every 10 evaluations, call supabase_write_evaluations with evaluations_json set to a JSON string of those objects.
-    5. If you see many skipped_foreign_key, you are using URLs from the wrong source—use only URLs from supabase_read_candidates.
-    6. Output PROCESSED_ARTICLES summary.
+    Batched workflow (repeat until no more candidates):
+    1. Call supabase_read_candidates(limit=5, offset=N) where N starts at 0, then 5, 10, 15, ... The tool returns only candidates not yet evaluated (newest first), so you never re-evaluate. Use ONLY the returned "articles" array; do NOT use the previous task's CANDIDATE_ARTICLES or any other source for ids.
+    2. If the returned "count" is 0 or "articles" is empty, you are done—output PROCESSED_ARTICLES summary and stop.
+    3. For each article in this batch, first obtain the full investment thesis text from {thesis_url} (e.g., using the ScrapeWebsiteTool configured on that URL or a cached copy), then call thesis_title_relevance_tool with thesis_text set to that full thesis text (NOT the URL) and article_title set to that article's title. Do not ever pass the URL itself as thesis_text.
+    4. Build evaluation objects: for each article, set "candidate_id" to that article's "id" (UUID) from the same read_candidates response. Merge with that article's thesis_title_relevance_tool result. Do not take id from task context, Discovery, or anywhere else—only from the articles array of the current read_candidates call.
+    5. Call supabase_write_evaluations with evaluations_json set to a JSON string of those objects (one batch only).
+    6. Set N = N + 5 and go back to step 1 (read next batch).
+    7. If you see skipped_foreign_key or skipped_no_candidate_id, use only the id from each article in the same read_candidates call as candidate_id; no other source is valid.
 
     Do NOT use the full-article Thesis Article Comparison Tool for this workflow.
   backstory: |
@@ -73,6 +75,6 @@ thesis_relevance_judge:
 
     Workflow context:
     - You score relevance using ONLY the article title (no body). Titles can be vague or sensational—when uncertain, score conservatively.
-    - Relevance is defined solely by the investment thesis provided (from the thesis URL). Do not add personal or extra criteria.
+    - Relevance is defined solely by the investment thesis provided (from the thesis URL). Always use the full scraped thesis text as thesis_text when calling thesis_title_relevance_tool; do not use the raw URL string as thesis_text. Do not add personal or extra criteria.
     - When calling the Thesis Title Relevance Tool, pass the NOT RELEVANT / RELEVANT guidelines above as relevance_context so the scorer applies the same rules.
     - Use the tool's returned fields (relevance_score, signal_type, exec_summary, etc.) as-is; pass them through to supabase_write_evaluations without overriding scores.

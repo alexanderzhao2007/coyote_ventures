@@ -17,6 +17,85 @@ class SupabaseWriteCandidatesInput(BaseModel):
     )
 
 
+def _last_complete_object_end(prefix: str) -> Optional[int]:
+    """
+    Find the index of the last '}' that closes a top-level object in a JSON array prefix.
+    Skips braces inside strings so we don't mistake a } in a URL/title for structure.
+    """
+    if not prefix or len(prefix) <= 1:
+        return None
+    i = 0
+    n = len(prefix)
+    depth = 0   # 0 = in array, 1 = in first object, 2 = nested, ...
+    in_string = False
+    string_char = None
+    escape = False
+    last_object_end: Optional[int] = None
+
+    while i < n:
+        c = prefix[i]
+        if escape:
+            escape = False
+            i += 1
+            continue
+        if in_string:
+            if c == "\\":
+                escape = True
+            elif c == string_char:
+                in_string = False
+            i += 1
+            continue
+        if c in ("'", '"'):
+            in_string = True
+            string_char = c
+            i += 1
+            continue
+        if c == "[":
+            depth += 1
+            i += 1
+            continue
+        if c == "]":
+            depth -= 1
+            i += 1
+            continue
+        if c == "{":
+            depth += 1
+            i += 1
+            continue
+        if c == "}":
+            if depth == 1:
+                last_object_end = i
+            depth -= 1
+            i += 1
+            continue
+        i += 1
+
+    return last_object_end
+
+
+def _salvage_json_array_prefix(s: str, error_pos: Optional[int]) -> Optional[list]:
+    """If the payload is truncated, try to parse a valid array prefix. Returns list or None."""
+    if not s or not s.strip().startswith("["):
+        return None
+    # Work on the prefix up to (and a bit before) the error so we don't include broken tail
+    end = (error_pos if error_pos is not None else len(s)) - 1
+    if end < 1:
+        return None
+    search = s[: end + 1]
+    # Use brace-aware search so we don't treat } inside a string (e.g. URL) as object end
+    idx = _last_complete_object_end(search)
+    if idx is None:
+        return None
+    prefix = search[: idx + 1] + "]"
+    try:
+        parsed = json.loads(prefix)
+        if isinstance(parsed, list) and all(isinstance(x, dict) for x in parsed):
+            return parsed
+    except json.JSONDecodeError:
+        return None
+    return None
+
+
 def _parse_published_date(value: Optional[str]) -> Optional[str]:
     """Try to convert Serply-style date to YYYY-MM-DD for Postgres date column."""
     if not value or not value.strip():
@@ -41,26 +120,42 @@ class SupabaseWriteCandidatesTool(BaseTool):
     name: str = "supabase_write_candidates"
     description: str = (
         "Insert candidate articles into the Supabase coyote_candidates table (Discovery table). "
-        "Call with a JSON array of articles: url (required), title (required), source (optional), published_date (optional). "
-        "Duplicate URLs are skipped. Returns the number of rows inserted."
+        "Call with a JSON array of at most 3 articles per call (platform truncates longer payloads). "
+        "Each article: url (required), title (required), source (optional), published_date (optional). "
+        "If a search returned 4–5 results, call this tool twice (e.g. 3 then 2). Duplicate URLs are skipped."
     )
     args_schema: Type[BaseModel] = SupabaseWriteCandidatesInput
 
-    def _run(self, articles_json: str) -> str:
+    def _run(self, articles_json: Optional[str] = None) -> str:
         import sys
-        try:
-            data = json.loads(articles_json)
-        except json.JSONDecodeError as e:
-            print(f"[supabase_write_candidates] Invalid JSON: {e}", file=sys.stderr)
+        if not articles_json or (isinstance(articles_json, str) and not articles_json.strip()):
             return json.dumps(
                 {
-                    "error": f"Invalid JSON: {e}",
+                    "error": "articles_json is required. Pass a JSON array of articles, e.g. [{\"url\":\"...\", \"title\":\"...\", \"source\":\"...\", \"published_date\":\"...\"}].",
                     "received": 0,
                     "inserted": 0,
                     "skipped_duplicates": 0,
                     "skipped_missing_url": 0,
                 }
             )
+        try:
+            data = json.loads(articles_json)
+        except json.JSONDecodeError as e:
+            print(f"[supabase_write_candidates] Invalid JSON: {e}", file=sys.stderr)
+            # Try to salvage a valid prefix (truncated payload): find last complete object before error
+            data = _salvage_json_array_prefix(articles_json, e.pos)
+            if data is None:
+                return json.dumps(
+                    {
+                        "error": f"Invalid JSON: {e}. Call with at most 5 articles per search to avoid truncation.",
+                        "received": 0,
+                        "inserted": 0,
+                        "skipped_duplicates": 0,
+                        "skipped_missing_url": 0,
+                        "skipped_older_than_7_days": 0,
+                    }
+                )
+            print(f"[supabase_write_candidates] Salvaged {len(data)} complete article(s) from truncated payload.", file=sys.stderr)
 
         # Accept either a JSON array or { "candidate_articles": [...] } from the agent's response format
         if isinstance(data, dict) and "candidate_articles" in data:
@@ -159,16 +254,17 @@ class SupabaseWriteCandidatesTool(BaseTool):
                         "inserted": inserted,
                         "skipped_duplicates": skipped_duplicates,
                         "skipped_missing_url": skipped_missing_url,
+                        "skipped_older_than_7_days": skipped_older_than_7_days,
                     }
                 )
 
-        if skipped_duplicates:
-                print(
-                    f"[supabase_write_candidates] Inserted {inserted} rows, "
-                    f"skipped {skipped_duplicates} duplicate URL(s), "
-                    f"skipped {skipped_older_than_7_days} older-than-7-days article(s).",
-                    file=sys.stderr,
-                )
+        if skipped_duplicates or skipped_older_than_7_days:
+            print(
+                f"[supabase_write_candidates] Inserted {inserted} rows, "
+                f"skipped {skipped_duplicates} duplicate URL(s), "
+                f"skipped {skipped_older_than_7_days} older-than-7-days article(s).",
+                file=sys.stderr,
+            )
         return json.dumps(
             {
                 "received": n_articles,

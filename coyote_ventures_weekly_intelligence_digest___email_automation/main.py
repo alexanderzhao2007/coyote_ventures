@@ -39,7 +39,7 @@ def run():
     CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew().crew().kickoff(inputs=inputs)
 
 
-def train():
+def train(n_iterations: int, filename: str):
     """
     Train the crew for a given number of iterations.
     """
@@ -47,22 +47,26 @@ def train():
         'thesis_url': 'https://www.coyote.ventures/thesis'
     }
     try:
-        CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew().crew().train(n_iterations=int(sys.argv[1]), filename=sys.argv[2], inputs=inputs)
-
+        CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew().crew().train(
+            n_iterations=n_iterations,
+            filename=filename,
+            inputs=inputs,
+        )
     except Exception as e:
         raise Exception(f"An error occurred while training the crew: {e}")
 
-def replay():
+
+def replay(task_id: str):
     """
     Replay the crew execution from a specific task.
     """
     try:
-        CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew().crew().replay(task_id=sys.argv[1])
-
+        CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew().crew().replay(task_id=task_id)
     except Exception as e:
         raise Exception(f"An error occurred while replaying the crew: {e}")
 
-def test():
+
+def test(n_iterations: int, openai_model_name: str):
     """
     Test the crew execution and returns the results.
     """
@@ -70,21 +74,22 @@ def test():
         'thesis_url': 'https://www.coyote.ventures/thesis'
     }
     try:
-        CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew().crew().test(n_iterations=int(sys.argv[1]), openai_model_name=sys.argv[2], inputs=inputs)
-
+        CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew().crew().test(
+            n_iterations=n_iterations,
+            openai_model_name=openai_model_name,
+            inputs=inputs,
+        )
     except Exception as e:
         raise Exception(f"An error occurred while testing the crew: {e}")
 
 
-def run_with_trigger():
+def run_with_trigger(trigger_payload_json: str):
     """
     Run the crew with trigger payload (e.g. from CrewAI triggers). Payload is passed as JSON in argv[1].
     """
     import json
-    if len(sys.argv) < 2:
-        raise Exception("No trigger payload provided. Please provide JSON payload as argument.")
     try:
-        trigger_payload = json.loads(sys.argv[1])
+        trigger_payload = json.loads(trigger_payload_json)
     except json.JSONDecodeError:
         raise Exception("Invalid JSON payload provided as argument")
     inputs = {
@@ -106,11 +111,25 @@ if __name__ == "__main__":
     if command == "run":
         run()
     elif command == "train":
-        train()
+        if len(sys.argv) < 4:
+            print("Usage: main.py train <n_iterations> <filename>")
+            sys.exit(1)
+        train(int(sys.argv[2]), sys.argv[3])
     elif command == "replay":
-        replay()
+        if len(sys.argv) < 3:
+            print("Usage: main.py replay <task_id>")
+            sys.exit(1)
+        replay(sys.argv[2])
     elif command == "test":
-        test()
+        if len(sys.argv) < 4:
+            print("Usage: main.py test <n_iterations> <openai_model_name>")
+            sys.exit(1)
+        test(int(sys.argv[2]), sys.argv[3])
+    elif command == "run_with_trigger":
+        if len(sys.argv) < 3:
+            print("Usage: main.py run_with_trigger <trigger_payload_json>")
+            sys.exit(1)
+        run_with_trigger(sys.argv[2])
     else:
         print(f"Unknown command: {command}")
         sys.exit(1)
