@@ -1,0 +1,51 @@
+Coyote Ventures — Investment Thesis Summary for Article Alignment Scoring
+
+About Coyote Ventures
+Coyote Ventures is a U.S.-only, pre-seed and seed stage venture fund investing in tech-enabled solutions that advance health equity — particularly for women and historically marginalized populations. They are primarily focused on digital platforms, including digital health, and have also invested in data analytics platforms, fintech, and insurtech solutions related to healthcare and wellbeing. They are currently NOT investing in therapeutics, medical devices, or CPG.
+
+ALIGNMENT CRITERIA
+An article is relevant if it covers innovation, policy, funding, market trends, or challenges in any of the following areas within the United States. City-specific news is only relevant if it pertains to: New York, Los Angeles, Chicago, Boston, or San Francisco — or if it has the potential for large-scale national impact.
+
+INVESTMENT FOCUS AREAS
+1. Mothers & Families
+Maternal mortality and morbidity (especially for Black women, who die from pregnancy-related causes at 3–4x the rate of white women), fertility access and financing (e.g., IVF affordability), prenatal and postnatal care, doula-led and culturally competent birth care, childcare costs, and family planning. Keywords: maternal health, birth equity, postpartum, doula, prenatal, fertility, IVF, family planning, infant health.
+2. Aging & Caregiving
+Solutions for the growing 65+ population, caregiver support tools, Alzheimer's and dementia care, integration with EHR systems, aging-in-place technology, senior social connectedness, and support for caregivers of children or people with disabilities. Keywords: aging, caregiving, elder care, Alzheimer's, dementia, senior health, caregiver burnout, aging in place.
+3. Financial Access & Affordability (Fintech/Insurtech in Healthcare)
+Healthcare financing solutions, high-deductible cost management, insurance-based benefit programs (e.g., paid parental leave), flexible benefits, employer health benefits, and tools that reduce financial barriers to care. Keywords: healthcare financing, health benefits, employer benefits, paid leave, insurance, affordability, health fintech, insurtech, out-of-pocket costs.
+4. Social Determinants of Health (SDOH)
+Tech-enabled platforms that screen for and address social barriers to care — housing, transportation, food access, air quality, environmental hazards, and community-based resource referrals. Predictive analytics identifying at-risk populations. Keywords: SDOH, social determinants, health equity, housing instability, food insecurity, resource referrals, environmental health, climate and health.
+5. Food & Nutrition
+Medically tailored meals, personalized nutrition programs, food-as-medicine, nutrition support for chronic disease or maternal health, food insecurity screening in clinical settings, and connecting patients to food assistance programs. Keywords: nutrition, food as medicine, medically tailored meals, food insecurity, gestational diabetes, dietary support.
+6. Community Health
+Community health workers, peer health educators, faith-based health initiatives, culturally relevant care navigation, community-based preventive care, and racial health disparity reduction through local infrastructure. Keywords: community health workers, peer support, health navigation, culturally competent care, underserved communities, racial health disparities.
+7. Mental & Behavioral Health
+Digital and tech-enabled mental health solutions, especially for women and minority communities. Solutions that integrate mental health into broader wraparound care (not standalone) and improve access and affordability. Telehealth for behavioral health. Keywords: mental health, behavioral health, telehealth therapy, anxiety, depression, women's mental health, mental health equity.
+8. Chronic Conditions & Oncology
+Digital tools for managing diabetes, cardiovascular disease, autoimmune disorders, and cancer — especially solutions addressing disparities in diagnosis and treatment for women and women of color. Continuous monitoring, personalized care plans, coordinated care. Keywords: chronic disease management, diabetes, cardiovascular disease, autoimmune, breast cancer, oncology, cancer disparities, remote monitoring, care coordination.
+9. Preventive Health
+Proactive and functional medicine approaches, diagnostic testing, wearable technology, early detection, risk management, lifestyle interventions, and preventive care access for underserved populations. Keywords: preventive care, wearables, early detection, functional medicine, health screening, risk stratification, population health.
+10. Sleep Health
+Digital platforms and wearables for sleep tracking, sleep apnea, circadian disorders, fatigue, insomnia, and recovery management integrated with broader wellness strategies. Keywords: sleep health, sleep apnea, insomnia, circadian rhythm, wearables, sleep tracking, fatigue, recovery.
+11. Taboo Topics / Women's Health
+Menstruation, menopause, sexual wellness, pelvic health, endometriosis, ovarian health, and other stigmatized women's health topics being normalized and addressed through tech-enabled solutions. Keywords: menopause, menstruation, endometriosis, sexual wellness, pelvic health, vaginal health, women's health innovation.
+12. Inclusive Data Sets
+Efforts to build diverse, sex-disaggregated, race-inclusive clinical and health data sets; representation in clinical trials; women-specific biomarkers and lab metrics; SDOH data integration in EHRs; Medicaid/Medicare/FQHC data. Keywords: health data equity, clinical trial diversity, inclusive datasets, biomarkers, EHR data, women in research, health disparities data.
+13. Data Analytics (Healthcare)
+Payer and provider analytics platforms, AI-driven decision support, care gap identification, SDOH analytics, screening rate disparities, interoperability, and real-time clinical insights. Keywords: healthcare analytics, payer analytics, provider analytics, AI decision support, care gaps, health data, interoperability, population health analytics.
+14. Workforce
+Solutions addressing healthcare workforce shortages, clinician burnout, staffing models, tech-enabled training, employee mental health and financial wellness benefits, and productivity tools for care teams. Keywords: healthcare workforce, clinician burnout, staffing, workforce wellbeing, employee benefits, nurse shortage, provider shortage.
+15. Patient Education & Decision Support
+Digital tools, care navigation services, and interactive content that improve health literacy, empower patients (especially women) to make informed decisions, and reduce bias in care delivery. Keywords: health literacy, patient education, care navigation, shared decision-making, patient empowerment, consumer health tools.
+16. Hormonal Health
+Continuous hormone tracking, longitudinal monitoring platforms, fertility optimization, menopause management, gender-affirming care support, and innovations that make hormone testing more accessible and actionable. Keywords: hormone health, hormone tracking, hormonal balance, fertility monitoring, menopause tech, gender-affirming health.
+17. Microbiome Health
+Digital platforms using novel science to measure and interpret gut, skin, or vaginal microbiomes for personalized health insights, particularly for underserved or overlooked populations. Keywords: microbiome, gut health, vaginal microbiome, personalized health, microbiome diagnostics.
+
+AUTOMATIC DISQUALIFIERS (Mark as NOT Relevant)
+- Articles about companies or policies outside the United States
+- Therapeutics (drugs, biologics, pharmaceuticals)
+- Medical devices (hardware, implants, diagnostics hardware)
+- CPG / consumer packaged goods
+- City-specific news from cities other than New York, Los Angeles, Chicago, Boston, or San Francisco — unless the impact is clearly national in scale
+- Pure biotech / life sciences with no digital platform component

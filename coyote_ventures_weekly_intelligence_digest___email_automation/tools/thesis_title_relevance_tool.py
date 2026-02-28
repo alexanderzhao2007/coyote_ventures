@@ -21,8 +21,15 @@ def _str(val: Any, default: Optional[str], max_len: int) -> Optional[str]:
 
 class ThesisTitleRelevanceInput(BaseModel):
     """Input schema for Thesis Title Relevance Tool."""
-    thesis_text: str = Field(..., description="The full text of the investment thesis")
     article_title: str = Field(..., description="The article title only (no body)")
+    use_static_thesis: bool = Field(
+        True,
+        description="If True (default), use the pre-loaded condensed thesis from config/thesis_summary.txt. Set False to pass thesis_text manually.",
+    )
+    thesis_text: Optional[str] = Field(
+        None,
+        description="Full thesis text (only used when use_static_thesis=False). Ignored when use_static_thesis=True.",
+    )
     relevance_context: Optional[str] = Field(
         None,
         description="Optional context describing what is typically relevant vs not for scoring (e.g. guidelines).",
@@ -39,8 +46,8 @@ class ThesisTitleRelevanceTool(BaseTool):
     name: str = "thesis_title_relevance_tool"
     description: str = (
         "Scores how relevant an article is to the investment thesis using ONLY the article title. "
-        "Call with thesis_text and article_title (and optional relevance_context). Returns a result shaped for "
-        "supabase_write_evaluations: relevance_score (0-100), confidence_score, signal_type, exec_summary, "
+        "Call with article_title and use_static_thesis=True (default) to use the pre-loaded condensed thesis—no need to scrape or pass thesis text. "
+        "Returns a result shaped for supabase_write_evaluations: relevance_score (0-100), confidence_score, signal_type, exec_summary, "
         "why_it_matters, thesis_sector, focus_area_tags, geography, companies_mentioned, rejection_reason. "
         "Judge adds candidate_id (UUID from read_candidates article.id) per article and passes the array to supabase_write_evaluations."
     )
@@ -56,17 +63,33 @@ class ThesisTitleRelevanceTool(BaseTool):
             )
         return api_key
 
+    def _get_thesis_text(self, use_static_thesis: bool, thesis_text: Optional[str]) -> str:
+        """Resolve thesis text from static file or provided argument."""
+        if use_static_thesis:
+            base = os.path.dirname(os.path.abspath(__file__))
+            pkg_root = os.path.dirname(base)
+            path = os.path.join(pkg_root, "config", "thesis_summary.txt")
+            if not os.path.isfile(path):
+                raise FileNotFoundError(
+                    f"Static thesis not found at {path}. Create config/thesis_summary.txt or use use_static_thesis=False with thesis_text."
+                )
+            with open(path, encoding="utf-8") as f:
+                return f.read().strip()
+        if not thesis_text or not thesis_text.strip():
+            raise ValueError("thesis_text is required when use_static_thesis=False")
+        return thesis_text.strip()
+
     def _run(
         self,
-        thesis_text: str,
         article_title: str,
+        use_static_thesis: bool = True,
+        thesis_text: Optional[str] = None,
         relevance_context: Optional[str] = None,
         openai_api_key: Optional[str] = None,
     ) -> str:
         try:
             api_key = self._get_api_key(openai_api_key)
-            if not thesis_text.strip():
-                raise ValueError("Thesis text cannot be empty")
+            resolved_thesis = self._get_thesis_text(use_static_thesis, thesis_text)
             if not article_title.strip():
                 raise ValueError("Article title cannot be empty")
 
@@ -77,7 +100,7 @@ class ThesisTitleRelevanceTool(BaseTool):
             prompt = f"""You are an investment analyst. Score how relevant this article is to the investment thesis using ONLY the article title. You do not have the article body—titles can be sensational or vague, so score conservatively.
 
 INVESTMENT THESIS:
-{thesis_text[:4000]}...
+{resolved_thesis[:4000]}{"..." if len(resolved_thesis) > 4000 else ""}
 
 ARTICLE TITLE ONLY:
 {article_title}

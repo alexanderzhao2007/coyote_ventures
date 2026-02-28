@@ -16,7 +16,7 @@ class SupabaseReadCandidatesInput(BaseModel):
     )
     offset: int = Field(
         default=0,
-        description="Rows to skip (pagination). Use 0 for first batch, then 5, 10, 15, ... Only the id from this response may be used for write_evaluations (as candidate_id).",
+        description="Rows to skip (pagination). For unevaluated_only=true, the most reliable evaluation loop is to always use offset=0 (drain the unevaluated view batch-by-batch). Only the id from this response may be used for write_evaluations (as candidate_id).",
     )
     unevaluated_only: bool = Field(
         default=True,
@@ -30,7 +30,7 @@ class SupabaseReadCandidatesTool(BaseTool):
     name: str = "supabase_read_candidates"
     description: str = (
         "Read candidate articles from Supabase. By default returns only candidates not yet in coyote_article_evaluations (newest first by created_at), so you never re-evaluate. "
-        "Use limit and offset for pagination: limit=5, offset=0 then 5, 10, 15, ... until count is 0. "
+        "Use limit for batching (e.g. limit=5). For unevaluated_only=true, prefer offset=0 repeatedly until count is 0 (after each write_evaluations batch, those candidates disappear from the unevaluated view). "
         "Each article has: id (required—use as candidate_id in write_evaluations), url, title, source, published_date."
     )
     args_schema: Type[BaseModel] = SupabaseReadCandidatesInput
@@ -55,7 +55,7 @@ class SupabaseReadCandidatesTool(BaseTool):
             table_or_view = "coyote_candidates_unevaluated" if unevaluated_only else "coyote_candidates"
             result = (
                 client.table(table_or_view)
-                .select("id, url, title, source, published_date")
+                .select("id, url, title, source, published_date, created_at")
                 .order("created_at", desc=True)
                 .range(offset, end)
                 .execute()

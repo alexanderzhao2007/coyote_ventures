@@ -26,7 +26,7 @@ def _last_complete_object_end(prefix: str) -> Optional[int]:
         return None
     i = 0
     n = len(prefix)
-    depth = 0   # 0 = in array, 1 = in first object, 2 = nested, ...
+    object_depth = 0  # counts only {} nesting; ignore [] so "[{...}]" top-level object closes at depth==1
     in_string = False
     string_char = None
     escape = False
@@ -50,22 +50,15 @@ def _last_complete_object_end(prefix: str) -> Optional[int]:
             string_char = c
             i += 1
             continue
-        if c == "[":
-            depth += 1
-            i += 1
-            continue
-        if c == "]":
-            depth -= 1
-            i += 1
-            continue
         if c == "{":
-            depth += 1
+            object_depth += 1
             i += 1
             continue
         if c == "}":
-            if depth == 1:
+            # If we are closing a top-level object in the array, object_depth will be 1 here.
+            if object_depth == 1:
                 last_object_end = i
-            depth -= 1
+            object_depth -= 1
             i += 1
             continue
         i += 1
@@ -120,9 +113,8 @@ class SupabaseWriteCandidatesTool(BaseTool):
     name: str = "supabase_write_candidates"
     description: str = (
         "Insert candidate articles into the Supabase coyote_candidates table (Discovery table). "
-        "Call with a JSON array of at most 3 articles per call (platform truncates longer payloads). "
-        "Each article: url (required), title (required), source (optional), published_date (optional). "
-        "If a search returned 4–5 results, call this tool twice (e.g. 3 then 2). Duplicate URLs are skipped."
+        "Call with a JSON array of candidate articles from a single SerplyNews search: url (required), title (required), source (optional), published_date (optional). "
+        "Use at most 5 articles per call (one search = one call). If the JSON is truncated, the tool will attempt to salvage all complete articles from the prefix. Duplicate URLs are skipped."
     )
     args_schema: Type[BaseModel] = SupabaseWriteCandidatesInput
 

@@ -25,6 +25,75 @@ def _valid_uuid(s: Any) -> Optional[str]:
         return None
 
 
+def _last_complete_object_end(prefix: str) -> Optional[int]:
+    """
+    Find the index of the last '}' that closes a top-level object in a JSON array prefix.
+    Skips braces inside strings so we don't mistake a } in a summary/url-like text for structure.
+    """
+    if not prefix or len(prefix) <= 1:
+        return None
+    i = 0
+    n = len(prefix)
+    object_depth = 0
+    in_string = False
+    string_char = None
+    escape = False
+    last_object_end: Optional[int] = None
+
+    while i < n:
+        c = prefix[i]
+        if escape:
+            escape = False
+            i += 1
+            continue
+        if in_string:
+            if c == "\\":
+                escape = True
+            elif c == string_char:
+                in_string = False
+            i += 1
+            continue
+        if c in ("'", '"'):
+            in_string = True
+            string_char = c
+            i += 1
+            continue
+        if c == "{":
+            object_depth += 1
+            i += 1
+            continue
+        if c == "}":
+            if object_depth == 1:
+                last_object_end = i
+            object_depth -= 1
+            i += 1
+            continue
+        i += 1
+
+    return last_object_end
+
+
+def _salvage_json_array_prefix(s: str, error_pos: Optional[int]) -> Optional[list]:
+    """If the payload is truncated, try to parse a valid array prefix. Returns list or None."""
+    if not s or not s.strip().startswith("["):
+        return None
+    end = (error_pos if error_pos is not None else len(s)) - 1
+    if end < 1:
+        return None
+    search = s[: end + 1]
+    idx = _last_complete_object_end(search)
+    if idx is None:
+        return None
+    prefix = search[: idx + 1] + "]"
+    try:
+        parsed = json.loads(prefix)
+        if isinstance(parsed, list) and all(isinstance(x, dict) for x in parsed):
+            return parsed
+    except json.JSONDecodeError:
+        return None
+    return None
+
+
 class SupabaseWriteEvaluationsInput(BaseModel):
     """Input for writing evaluations to Supabase."""
 
@@ -69,6 +138,7 @@ class SupabaseWriteEvaluationsTool(BaseTool):
     description: str = (
         "Insert evaluation results into the Supabase coyote_article_evaluations table. "
         "Call with a JSON array of evaluation objects, or an object with 'evaluations' or 'evaluation_list' key. "
+        "To avoid platform truncation, send at most 2 evaluation objects per call (split batches if needed). "
         "Each object: candidate_id (required, UUID from read_candidates article.id), plus fields from thesis_title_relevance_tool (relevance_score, exec_summary, etc.). "
         "Each candidate_id must exist in coyote_candidates. Duplicate candidate_id are skipped. Returns inserted count and skip reasons."
     )
@@ -98,16 +168,24 @@ class SupabaseWriteEvaluationsTool(BaseTool):
         try:
             data = json.loads(evaluations_json) if isinstance(evaluations_json, str) else evaluations_json
         except json.JSONDecodeError as e:
-            return json.dumps(
-                {
-                    "error": f"Invalid JSON for evaluations_json: {e}",
-                    "inserted": 0,
-                    "skipped_no_candidate_id": 0,
-                    "skipped_duplicate": 0,
-                    "skipped_foreign_key": 0,
-                    "skipped_invalid": 0,
-                }
+            # Try to salvage a valid prefix (truncated payload): find last complete object before error
+            salvaged = _salvage_json_array_prefix(evaluations_json, e.pos) if isinstance(evaluations_json, str) else None
+            if salvaged is None:
+                return json.dumps(
+                    {
+                        "error": f"Invalid JSON for evaluations_json: {e}",
+                        "inserted": 0,
+                        "skipped_no_candidate_id": 0,
+                        "skipped_duplicate": 0,
+                        "skipped_foreign_key": 0,
+                        "skipped_invalid": 0,
+                    }
+                )
+            print(
+                f"[supabase_write_evaluations] Salvaged {len(salvaged)} evaluation object(s) from truncated payload.",
+                file=sys.stderr,
             )
+            data = salvaged
 
         if isinstance(data, dict):
             # Accept wrappers: evaluations, evaluation_list, evaluation_objects

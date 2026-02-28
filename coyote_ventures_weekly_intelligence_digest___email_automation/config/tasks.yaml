@@ -7,22 +7,23 @@ search_for_candidate_articles:
     older than 7 days.
 
     The 12 required keywords (search each once):
-    health startup valuation, health tech, remote patient monitoring (rpm), US health legislation,
+    health startup valuation, health tech, remote patient monitoring (rpm), health access,
     electronic health records (EHR), healthcare innovation, health equity, digital health technology,
-    AI health, virtual health, care model, health conference.
+    AI health, virtual health, health platform, health conference.
 
-    After EACH search, insert that search's results via supabase_write_candidates: at most 3 articles
-    per call (longer payloads are truncated by the platform, so only 2–3 would be inserted). If the search
-    returned 4 or 5 articles, call supabase_write_candidates twice (e.g. first 3, then the rest). Use
-    compact JSON (minimal whitespace). Never pass more than 3 articles in one call.
+    After EACH search, immediately call supabase_write_candidates once with ONLY that search's
+    results (a JSON array of at most 5 articles: url, title, source, published_date). Use compact JSON.
+    Never pass more than 5 articles in one call. Do not stop until all 12 searches are done and the sum
+    of "inserted" from all write_candidates outputs is at least 40 (target 40–60).
 
-    After completing all 12 searches (and 12 insert calls), output the full
+    After completing all 12 searches and all write_candidates calls, output the full
     CANDIDATE_ARTICLES list (title, URL, source, published date) and a
     SEARCH LOG listing all 12 queries and article count per query. Do not truncate
     the list.
   expected_output: |
-    TOTAL ARTICLES COLLECTED: [count]
-    CANDIDATE_ARTICLES: numbered list 60 articles (title, URL, source, date).
+    TOTAL ARTICLES COLLECTED: [count] (target 40–60)
+    Total inserted (from all write_candidates outputs): [sum]
+    CANDIDATE_ARTICLES: numbered list of all collected articles (title, URL, source, date).
     SEARCH LOG: all 12 search queries and how many articles each returned.
   agent: healthcare_news_discovery_specialist
   async_execution: true
@@ -31,19 +32,16 @@ evaluate_investment_relevance:
   description: |
     CRITICAL: You MUST call the supabase_write_evaluations tool for each batch. This task is INCOMPLETE and FAILS if you only output text without calling the tool. The database insertions are the primary deliverable.
 
-    Batched workflow (repeat until no more candidates):
-    1. Call supabase_read_candidates(limit=5, offset=N) with N starting at 0. The tool returns only unevaluated candidates (newest first), so you never re-evaluate. Use ONLY the returned "articles" array; do NOT use URLs or titles from the previous task (search) output.
+    Process (repeat until no unevaluated articles remain):
+    1. Read: Call supabase_read_candidates(limit=5, offset=0). You MUST pass limit=5 and offset=0. This returns at most 5 unevaluated candidates (newest first). Do NOT use any other source of articles—only evaluate articles from this call's "articles" array. After you write evaluations for a batch, those candidates are removed from the unevaluated view, so the next read (again offset=0) returns the next 5.
     2. If "count" is 0 or "articles" is empty, you are done—output PROCESSED_ARTICLES summary and stop.
-    3. For each article in this batch, first obtain the full investment thesis text from {thesis_url} (e.g., using the ScrapeWebsiteTool configured on that URL or a cached copy), then call thesis_title_relevance_tool with thesis_text set to that full thesis text (NOT the URL) and article_title set to that article's title. Do not ever pass the URL itself as thesis_text.
-    4. Build evaluation objects: set each "candidate_id" to that article's "id" (UUID) from the same read_candidates response. Do not use id from task context or Discovery—only from the current read_candidates "articles" array.
-    5. Call supabase_write_evaluations with evaluations_json set to a JSON string of those objects.
-    6. Set N = N + 5 and go back to step 1. Continue until read_candidates returns 0 articles.
-    7. Do NOT put the evaluations_json string only in your Final Answer. You must actually CALL the supabase_write_evaluations tool so that the database is updated.
-    8. Your Final Answer should summarize what you did (PROCESSED_ARTICLES summary) and may show the tool outputs, but it should NOT just return the JSON payload.
+    3. Evaluate: For each of the at most 5 articles from step 1 only, call thesis_title_relevance_tool(article_title=<title>, use_static_thesis=True). Do NOT scrape the thesis—the tool uses the pre-loaded condensed thesis. Call the tool exactly 5 times or fewer (once per article in this batch)—never more than the number of articles returned.
+    4. Write: Build one evaluation object per article (candidate_id = that article's "id" from the same read_candidates response). Call supabase_write_evaluations to insert into coyote_article_evaluations (send at most 2 objects per call if splitting: e.g. 2+2+1 for 5).
+    5. Loop: Go back to step 1 (read again with limit=5, offset=0). Do not stop until step 2 says count is 0.
 
-    Example: read_candidates(limit=5, offset=0) → score 5 → write_evaluations(those 5) → read_candidates(limit=5, offset=5) → score 5 → write_evaluations → ... until count is 0.
+    Do NOT evaluate articles from the Discovery task output or from any list other than the current read_candidates response. Do NOT call thesis_title_relevance_tool for more articles than were returned in the last read_candidates call. You must actually CALL supabase_write_evaluations; do not only put JSON in your Final Answer. Your Final Answer should include PROCESSED_ARTICLES summary and tool output evidence, not the raw evaluations array.
   expected_output: |
-    First: Evidence that supabase_write_evaluations was called (tool output showing inserted counts). Then: PROCESSED_ARTICLES list and summary (total_evaluated, accepted, rejected). Do NOT output the evaluations_json array itself as the Final Answer; only tool calls count. If no supabase_write_evaluations tool calls are shown, the task is incomplete.
+    Evidence that supabase_write_evaluations was called for every batch (tool outputs showing inserted counts). Total evaluations inserted (sum of "inserted" from all write_evaluations outputs) should match total candidates (e.g. 40–60 for a full run). Then: PROCESSED_ARTICLES list and summary (total_evaluated, accepted, rejected). Do NOT output the evaluations_json array itself as the Final Answer.
   agent: thesis_relevance_judge
   context:
     - search_for_candidate_articles
