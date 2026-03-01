@@ -1,29 +1,42 @@
 """
 Thin wrapper around crewai_tools SerplyNewsSearchTool that catches API/JSON errors
-and returns a clear message instead of "Expecting value: line 1 column 1 (char 0)".
+and retries with exponential backoff before surfacing an error to the agent.
 """
 import json
+import sys
+import time
 from typing import Any
 
 from crewai_tools import SerplyNewsSearchTool
 
+_MAX_RETRIES = 3
+_BASE_DELAY = 5  # seconds; delays: 5, 10, 20
+
 
 class SerplyNewsSearchToolSafe(SerplyNewsSearchTool):
     """
-    Same as SerplyNewsSearchTool but on empty/non-JSON or request errors returns
-    a clear error string so the agent can retry or report (e.g. rate limit, bad key).
+    Same as SerplyNewsSearchTool but retries on rate-limit / transient errors
+    with exponential backoff. Returns a clear error string only after all retries
+    are exhausted.
     """
 
     def _run(self, **kwargs: Any) -> Any:
-        try:
-            return super()._run(**kwargs)
-        except json.JSONDecodeError as e:
-            return (
-                f"Serply news API returned invalid or empty JSON (often rate limit or server error). "
-                f"Error: {e}. Check SERPLY_API_KEY and Serply quota; wait a minute and retry this search."
-            )
-        except Exception as e:
-            return (
-                f"Serply news search failed: {e}. "
-                f"Check SERPLY_API_KEY and network; retry this search later."
-            )
+        last_error = None
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                return super()._run(**kwargs)
+            except (json.JSONDecodeError, Exception) as e:
+                last_error = e
+                if attempt < _MAX_RETRIES:
+                    delay = _BASE_DELAY * (2 ** (attempt - 1))
+                    print(
+                        f"[serply_safe] Attempt {attempt}/{_MAX_RETRIES} failed: {e}. "
+                        f"Retrying in {delay}s...",
+                        file=sys.stderr,
+                    )
+                    time.sleep(delay)
+
+        return (
+            f"Serply news search failed after {_MAX_RETRIES} attempts. "
+            f"Last error: {last_error}. Check SERPLY_API_KEY and Serply quota."
+        )

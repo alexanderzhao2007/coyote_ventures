@@ -47,36 +47,76 @@ def _unevaluated_count() -> int:
         return 0
 
 
-def _drain_judge(factory, inputs, max_rounds: int = 20) -> int:
+def _drain_judge(factory, inputs, max_rounds: int = 20, max_stalls: int = 3,
+                  max_retries: int = 4, retry_cooldown: int = 45) -> int:
     """Run the judge crew in a loop until all unevaluated candidates are processed.
-    Returns total number of candidates evaluated across all rounds."""
+
+    Self-healing: when the agent stalls (stops writing evaluations), the inner
+    loop stops after max_stalls consecutive zero-progress rounds. If candidates
+    remain, a cooldown period starts, then the entire inner loop retries from
+    scratch with a fresh crew. This repeats up to max_retries times so the
+    pipeline can run unattended.
+
+    Returns total number of candidates evaluated across all retries."""
     total_processed = 0
 
-    for round_num in range(1, max_rounds + 1):
+    for retry in range(max_retries):
         remaining = _unevaluated_count()
-        print(f"\n[judge_loop] Round {round_num}: {remaining} unevaluated candidates remaining")
         if remaining == 0:
-            print(f"[judge_loop] All candidates evaluated ({total_processed} total). Done.")
             break
 
-        before = remaining
-        factory.crew_judge_only().kickoff(inputs=inputs)
-        after = _unevaluated_count()
-        processed_this_round = before - after
-        total_processed += processed_this_round
-        print(f"[judge_loop] Round {round_num} complete: processed {processed_this_round}, {after} remaining")
+        if retry > 0:
+            print(
+                f"\n[judge_loop] Retry {retry}/{max_retries - 1}: {remaining} still unevaluated. "
+                f"Cooling down {retry_cooldown}s before fresh attempt..."
+            )
+            time.sleep(retry_cooldown)
 
-        if processed_this_round == 0:
-            print("[judge_loop] No progress this round — stopping to avoid infinite loop.", file=sys.stderr)
-            break
+        consecutive_stalls = 0
+        for round_num in range(1, max_rounds + 1):
+            remaining = _unevaluated_count()
+            print(f"\n[judge_loop] Round {round_num} (retry {retry}): {remaining} unevaluated candidates remaining")
+            if remaining == 0:
+                print(f"[judge_loop] All candidates evaluated ({total_processed} total). Done.")
+                break
 
-        if _unevaluated_count() > 0:
-            print("[judge_loop] Sleeping 30s before next round to avoid rate limits...")
-            time.sleep(30)
-    else:
-        print(f"[judge_loop] Reached max rounds ({max_rounds}). {_unevaluated_count()} still unevaluated.", file=sys.stderr)
+            before = remaining
+            factory.crew_judge_only().kickoff(inputs=inputs)
+            after = _unevaluated_count()
+            processed_this_round = before - after
+            total_processed += processed_this_round
+            print(f"[judge_loop] Round {round_num} complete: processed {processed_this_round}, {after} remaining")
 
-    print(f"[judge_loop] Finished. Total evaluated across all rounds: {total_processed}")
+            if processed_this_round == 0:
+                consecutive_stalls += 1
+                print(
+                    f"[judge_loop] No progress this round ({consecutive_stalls}/{max_stalls} consecutive stalls).",
+                    file=sys.stderr,
+                )
+                if consecutive_stalls >= max_stalls:
+                    print("[judge_loop] Stall limit hit — will retry after cooldown.", file=sys.stderr)
+                    break
+            else:
+                consecutive_stalls = 0
+
+            if after > 0:
+                print("[judge_loop] Sleeping 15s before next round to avoid rate limits...")
+                time.sleep(15)
+        else:
+            remaining = _unevaluated_count()
+            if remaining > 0:
+                print(
+                    f"[judge_loop] Reached max rounds ({max_rounds}). {remaining} still unevaluated.",
+                    file=sys.stderr,
+                )
+
+    final_remaining = _unevaluated_count()
+    if final_remaining > 0:
+        print(
+            f"[judge_loop] Exhausted all {max_retries} retry cycles. {final_remaining} candidates still unevaluated.",
+            file=sys.stderr,
+        )
+    print(f"[judge_loop] Finished. Total evaluated across all retries: {total_processed}")
     return total_processed
 
 
@@ -112,6 +152,51 @@ def run_judge_only():
     }
     factory = CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew()
     _drain_judge(factory, inputs)
+
+
+def _clear_evaluations() -> int:
+    """Delete all rows from coyote_article_evaluations. Returns count deleted."""
+    supabase_url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_SERVICE_KEY")
+    if not supabase_url or not key:
+        print("[rescore] SUPABASE_URL and SUPABASE_SERVICE_KEY must be set.", file=sys.stderr)
+        return 0
+    try:
+        from supabase import create_client
+        client = create_client(supabase_url, key)
+        result = (
+            client.table("coyote_article_evaluations")
+            .select("id", count="exact")
+            .limit(1)
+            .execute()
+        )
+        total = result.count or 0
+        if total == 0:
+            print("[rescore] No existing evaluations to delete.")
+            return 0
+        print(f"[rescore] Deleting {total} existing evaluations...")
+        client.table("coyote_article_evaluations").delete().neq("id", "00000000-0000-0000-0000-000000000000").execute()
+        print(f"[rescore] Deleted {total} evaluations.")
+        return total
+    except Exception as e:
+        print(f"[rescore] Error clearing evaluations: {e}", file=sys.stderr)
+        return 0
+
+
+def rescore():
+    """
+    Delete all existing evaluations and re-score every candidate article
+    using the current scoring prompt/rubric.
+    """
+    deleted = _clear_evaluations()
+    remaining = _unevaluated_count()
+    print(f"[rescore] {remaining} candidates now unevaluated. Starting judge loop...")
+    inputs = {
+        'thesis_url': 'https://www.coyote.ventures/thesis'
+    }
+    factory = CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew()
+    _drain_judge(factory, inputs)
+    print("[rescore] Rescore complete.")
 
 
 def train(n_iterations: int, filename: str):
@@ -187,6 +272,8 @@ if __name__ == "__main__":
         run()
     elif command == "run_judge_only":
         run_judge_only()
+    elif command == "rescore":
+        rescore()
     elif command == "train":
         if len(sys.argv) < 4:
             print("Usage: main.py train <n_iterations> <filename>")

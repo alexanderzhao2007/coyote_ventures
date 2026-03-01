@@ -2,6 +2,8 @@
 
 import os
 import json
+import sys
+import time
 import requests
 from typing import Type, Dict, Any, Optional
 
@@ -106,10 +108,31 @@ ARTICLE TITLE ONLY:
 {article_title}
 {context_block}
 
-Return exactly one JSON object with these keys only (no markdown, no explanation):
+STEP 1 — CHECK DISQUALIFIERS FIRST (geography and focus-area gates). These override everything else:
+  a) Does the title reference a NON-U.S. country (UK, India, Canada, China, etc.)? If YES → score MUST be ≤ 30, UNLESS the article is an unmistakable 100% match on a thesis focus area (e.g., a named company in a thesis sector raising a specific round). "Related to healthcare abroad" is NOT enough to override.
+  b) Does the title reference a U.S. state, county, or city that is NOT New York, Los Angeles, Chicago, Boston, or San Francisco? If YES and the finding is local in scope (no clear national-scale impact) → score MUST be ≤ 30, same exception as (a).
+  c) Which of the 17 focus areas does this title map to? If NONE → score MUST be ≤ 40, UNLESS the article qualifies as market intelligence (see 50-59 in the rubric), in which case it may score up to 59.
+
+STEP 2 — Only if the article passed the geography/focus-area gates above, determine specificity:
+  a) Does the title mention a SPECIFIC company, funding round, technology, legislation, or measurable development? Or is it generic/vague?
+  b) Is the geography clearly U.S. national or one of the 5 listed cities?
+
+STEP 3 — Assign a relevance_score using this DETAILED rubric:
+  90-100: Title explicitly names a company, funding round, or policy change that DIRECTLY matches a thesis focus area. Rare—reserve for unmistakable hits.
+  80-89:  Title strongly implies a specific thesis focus area AND mentions a concrete detail (company name, dollar amount, named technology, specific legislation).
+  70-79:  Title clearly maps to a thesis focus area with moderate specificity (names a sector or trend within a focus area, but lacks a concrete company/amount/policy).
+  60-69:  Title is related to a thesis focus area but is BROAD or lacks specificity (e.g., "Digital health trends in 2026"). Requires a clear connection to a specific focus area.
+  50-59:  MARKET INTELLIGENCE — Title provides valuable context for healthcare investing even though it does not directly match a specific thesis focus area. Examples: major healthcare M&A or IPO activity, broad regulatory/policy changes (CMS, FDA), industry trend reports or market sizing data, large payer/insurer strategy shifts, healthcare workforce or spending trends. The article must still be U.S.-focused and actionable for investment decision-making.
+  40-49:  Title is healthcare-adjacent but not useful for investing decisions (e.g., pharma earnings, hospital construction, clinical trial results).
+  30-39:  Title is only loosely connected to healthcare or investment.
+  0-29:   Title has no meaningful connection to the thesis.
+
+IMPORTANT: Use the FULL range of scores. Do NOT default to any single number. Each article should be scored on its own merits based on the rubric above.
+
+Return exactly one JSON object with these keys only (no markdown, no explanation outside the JSON):
 {{
-  "relevance_score": 65,
-  "confidence_score": 70,
+  "relevance_score": <integer 0-100>,
+  "confidence_score": <integer 0-100>,
   "signal_type": "One of: direct_thesis_match, market_intelligence, other",
   "exec_summary": "1-2 sentence summary of why the title suggests relevance or not",
   "why_it_matters": "Brief reason relevant for investment/market intelligence, or empty if low relevance",
@@ -120,7 +143,13 @@ Return exactly one JSON object with these keys only (no markdown, no explanation
   "rejection_reason": "Only if relevance_score < 50, brief reason; otherwise null"
 }}
 
-Use relevance_score 0-100: 70+ direct thesis match, 50-69 market intelligence, under 50 reject. signal_type: direct_thesis_match for strong alignment, market_intelligence for related context, other otherwise."""
+signal_type: "direct_thesis_match" for score 70+, "market_intelligence" for 50-69, "other" for below 50.
+
+HARD SCORING CAPS — These are the HIGHEST-PRIORITY rules. Apply them LAST and force the score down if violated, even if the rubric above suggested a higher score:
+1. NON-U.S. COUNTRY: If the title mentions or implies ANY country other than the United States (e.g., UK, India, South Africa, Canada, China, Australia, etc.), the relevance_score MUST NOT exceed 30. The ONLY exception: the article is an unmistakable, 100% direct match on a thesis focus area (e.g., a named thesis-sector company with a specific funding amount). Merely being "about healthcare" in another country is NOT enough.
+2. NON-LISTED U.S. LOCALITY: If the title references state-level, county-level, or city-level news for any location other than New York, Los Angeles, Chicago, Boston, or San Francisco — and the scope is local (not clearly national-scale) — the relevance_score MUST NOT exceed 30. Same narrow exception as rule 1.
+3. NO DIRECT FOCUS-AREA RELEVANCE: If the article has no direct relevance to ANY of the 17 investment focus areas, the relevance_score MUST NOT exceed 40 — UNLESS the article qualifies as market intelligence (major M&A, regulatory changes, industry trends, payer strategy shifts, workforce/spending data), in which case it may score up to 59. Generic health news that does not map to a focus area and is not actionable market intelligence does not qualify.
+4. PRIORITY ORDER: Geography caps (rules 1-2) OVERRIDE focus-area relevance. An article can match a thesis focus area perfectly but still score ≤ 30 if it fails geography."""
 
             url = "https://api.openai.com/v1/chat/completions"
             headers = {
@@ -128,14 +157,33 @@ Use relevance_score 0-100: 70+ direct thesis match, 50-69 market intelligence, u
                 "Content-Type": "application/json",
             }
             payload = {
-                "model": "gpt-4o-mini",
+                "model": "gpt-4.1-mini",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
+                "temperature": 0.15,
                 "max_tokens": 600,
             }
 
-            response = requests.post(url, headers=headers, json=payload, timeout=45)
-            response.raise_for_status()
+            max_retries = 3
+            base_delay = 5
+            last_err = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    response = requests.post(url, headers=headers, json=payload, timeout=45)
+                    response.raise_for_status()
+                    break
+                except requests.RequestException as e:
+                    last_err = e
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** (attempt - 1))
+                        print(
+                            f"[title_relevance] Attempt {attempt}/{max_retries} failed: {e}. "
+                            f"Retrying in {delay}s...",
+                            file=sys.stderr,
+                        )
+                        time.sleep(delay)
+                    else:
+                        raise last_err
+
             data = response.json()
             content = data["choices"][0]["message"]["content"]
 

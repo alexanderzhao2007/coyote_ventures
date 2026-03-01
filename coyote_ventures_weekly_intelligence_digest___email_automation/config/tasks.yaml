@@ -30,18 +30,12 @@ search_for_candidate_articles:
 
 evaluate_investment_relevance:
   description: |
-    CRITICAL: You MUST call the supabase_write_evaluations tool for each batch. This task is INCOMPLETE and FAILS if you only output text without calling the tool. The database insertions are the primary deliverable.
-
-    Process (repeat until no unevaluated articles remain):
-    1. Read: Call supabase_read_candidates(limit=5, offset=0). You MUST pass limit=5 and offset=0. This returns at most 5 unevaluated candidates (newest first). Do NOT use any other source of articles—only evaluate articles from this call's "articles" array. After you write evaluations for a batch, those candidates are removed from the unevaluated view, so the next read (again offset=0) returns the next 5.
-    2. If "count" is 0 or "articles" is empty, you are done—output PROCESSED_ARTICLES summary and stop.
-    3. Evaluate: For each of the at most 5 articles from step 1 only, call thesis_title_relevance_tool(article_title=<title>, use_static_thesis=True). Do NOT scrape the thesis—the tool uses the pre-loaded condensed thesis. Call the tool exactly 5 times or fewer (once per article in this batch)—never more than the number of articles returned.
-    4. Write: Build one evaluation object per article (candidate_id = that article's "id" from the same read_candidates response). Call supabase_write_evaluations to insert into coyote_article_evaluations (send at most 2 objects per call if splitting: e.g. 2+2+1 for 5).
-    5. Loop: Go back to step 1 (read again with limit=5, offset=0). Do not stop until step 2 says count is 0.
-
-    Do NOT evaluate articles from the Discovery task output or from any list other than the current read_candidates response. Do NOT call thesis_title_relevance_tool for more articles than were returned in the last read_candidates call. You must actually CALL supabase_write_evaluations; do not only put JSON in your Final Answer. Your Final Answer should include PROCESSED_ARTICLES summary and tool output evidence, not the raw evaluations array.
+    Process one batch of up to 3 articles:
+    1. Call supabase_read_candidates(limit=3, offset=0). If count is 0, output "No candidates remaining" and stop.
+    2. For each article, call thesis_title_relevance_tool(article_title=<title>, use_static_thesis=True).
+    3. For each article, call supabase_write_evaluations with 1 evaluation object containing the tool's result plus candidate_id set to that article's "id" from step 1.
+    4. Output a PROCESSED_ARTICLES summary and stop.
   expected_output: |
-    Evidence that supabase_write_evaluations was called for every batch (tool outputs showing inserted counts). Total evaluations inserted (sum of "inserted" from all write_evaluations outputs) should match total candidates (e.g. 40–60 for a full run). Then: PROCESSED_ARTICLES list and summary (total_evaluated, accepted, rejected). Do NOT output the evaluations_json array itself as the Final Answer.
+    Evidence that supabase_write_evaluations was called (inserted count).
+    PROCESSED_ARTICLES summary: total_evaluated, accepted, rejected.
   agent: thesis_relevance_judge
-  context:
-    - search_for_candidate_articles

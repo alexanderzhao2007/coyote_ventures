@@ -57,13 +57,14 @@ class CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew:
             max_reasoning_attempts=None,
             inject_date=True,
             allow_delegation=False,
-            max_iter=150,
+            max_iter=15,
             max_rpm=None,
 
             max_execution_time=None,
             llm=LLM(
-                model="openai/gpt-4o-mini",
-                temperature=0.7,
+                model="openai/gpt-4.1-mini",
+                temperature=0.3,
+                max_tokens=16384,
             ),
 
         )

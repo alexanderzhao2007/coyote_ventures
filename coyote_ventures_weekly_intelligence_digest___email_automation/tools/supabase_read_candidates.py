@@ -30,7 +30,7 @@ class SupabaseReadCandidatesTool(BaseTool):
     name: str = "supabase_read_candidates"
     description: str = (
         "Read candidate articles from Supabase. By default returns only candidates not yet in coyote_article_evaluations (newest first by created_at), so you never re-evaluate. "
-        "Use limit for batching (e.g. limit=5). For unevaluated_only=true, prefer offset=0 repeatedly until count is 0 (after each write_evaluations batch, those candidates disappear from the unevaluated view). "
+        "Use limit=5 and offset=0 for batched evaluation. The external runner handles iteration across batches. "
         "Each article has: id (required—use as candidate_id in write_evaluations), url, title, source, published_date."
     )
     args_schema: Type[BaseModel] = SupabaseReadCandidatesInput
