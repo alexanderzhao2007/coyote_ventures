@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import os
 import sys
+import json
 import time
 
 # Use UTF-8 for stdout/stderr on Windows so CrewAI event bus (emoji) doesn't cause
@@ -24,6 +25,9 @@ if os.path.isfile(_env_path):
                 os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 from coyote_ventures_weekly_intelligence_digest___email_automation.crew import CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew
+from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_read_candidates import SupabaseReadCandidatesTool
+from coyote_ventures_weekly_intelligence_digest___email_automation.tools.thesis_title_relevance_tool import ThesisTitleRelevanceTool
+from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_write_evaluations import SupabaseWriteEvaluationsTool
 
 
 def _unevaluated_count() -> int:
@@ -43,115 +47,86 @@ def _unevaluated_count() -> int:
         )
         return result.count or 0
     except Exception as e:
-        print(f"[judge_loop] Error checking unevaluated count: {e}", file=sys.stderr)
+        print(f"[evaluate] Error checking unevaluated count: {e}", file=sys.stderr)
         return 0
 
 
-def _drain_judge(factory, inputs, max_rounds: int = 20, max_stalls: int = 3,
-                  max_retries: int = 4, retry_cooldown: int = 45) -> int:
-    """Run the judge crew in a loop until all unevaluated candidates are processed.
+def evaluate_batch(batch_size: int = 3) -> int:
+    """Score and write one batch of unevaluated candidates. Returns count processed."""
+    reader = SupabaseReadCandidatesTool()
+    scorer = ThesisTitleRelevanceTool()
+    writer = SupabaseWriteEvaluationsTool()
 
-    Self-healing: when the agent stalls (stops writing evaluations), the inner
-    loop stops after max_stalls consecutive zero-progress rounds. If candidates
-    remain, a cooldown period starts, then the entire inner loop retries from
-    scratch with a fresh crew. This repeats up to max_retries times so the
-    pipeline can run unattended.
+    raw = json.loads(reader._run(limit=batch_size, offset=0))
+    articles = raw.get("articles", [])
+    if not articles:
+        return 0
 
-    Returns total number of candidates evaluated across all retries."""
-    total_processed = 0
+    processed = 0
+    for article in articles:
+        title = article.get("title", "")
+        candidate_id = article.get("id", "")
+        if not title or not candidate_id:
+            print(f"[evaluate] Skipping article with missing title or id: {article}", file=sys.stderr)
+            continue
+        try:
+            result = json.loads(scorer._run(article_title=title, use_static_thesis=True))
+            result["candidate_id"] = candidate_id
+            writer._run(evaluations_json=json.dumps([result]))
+            score = result.get("relevance_score", "?")
+            print(f"[evaluate] Scored '{title[:80]}' -> {score}")
+            processed += 1
+        except Exception as e:
+            print(f"[evaluate] Error scoring '{title[:80]}': {e}", file=sys.stderr)
 
-    for retry in range(max_retries):
+    return processed
+
+
+def evaluate_all(batch_size: int = 3, sleep_between: int = 2) -> int:
+    """Evaluate all unevaluated candidates in batches. Returns total processed."""
+    total = 0
+    while True:
         remaining = _unevaluated_count()
         if remaining == 0:
             break
+        print(f"\n[evaluate] {remaining} unevaluated candidates remaining")
+        processed = evaluate_batch(batch_size)
+        total += processed
+        if processed == 0:
+            print("[evaluate] Batch returned 0 processed — stopping.", file=sys.stderr)
+            break
+        time.sleep(sleep_between)
 
-        if retry > 0:
-            print(
-                f"\n[judge_loop] Retry {retry}/{max_retries - 1}: {remaining} still unevaluated. "
-                f"Cooling down {retry_cooldown}s before fresh attempt..."
-            )
-            time.sleep(retry_cooldown)
-
-        consecutive_stalls = 0
-        for round_num in range(1, max_rounds + 1):
-            remaining = _unevaluated_count()
-            print(f"\n[judge_loop] Round {round_num} (retry {retry}): {remaining} unevaluated candidates remaining")
-            if remaining == 0:
-                print(f"[judge_loop] All candidates evaluated ({total_processed} total). Done.")
-                break
-
-            before = remaining
-            factory.crew_judge_only().kickoff(inputs=inputs)
-            after = _unevaluated_count()
-            processed_this_round = before - after
-            total_processed += processed_this_round
-            print(f"[judge_loop] Round {round_num} complete: processed {processed_this_round}, {after} remaining")
-
-            if processed_this_round == 0:
-                consecutive_stalls += 1
-                print(
-                    f"[judge_loop] No progress this round ({consecutive_stalls}/{max_stalls} consecutive stalls).",
-                    file=sys.stderr,
-                )
-                if consecutive_stalls >= max_stalls:
-                    print("[judge_loop] Stall limit hit — will retry after cooldown.", file=sys.stderr)
-                    break
-            else:
-                consecutive_stalls = 0
-
-            if after > 0:
-                print("[judge_loop] Sleeping 15s before next round to avoid rate limits...")
-                time.sleep(15)
-        else:
-            remaining = _unevaluated_count()
-            if remaining > 0:
-                print(
-                    f"[judge_loop] Reached max rounds ({max_rounds}). {remaining} still unevaluated.",
-                    file=sys.stderr,
-                )
-
-    final_remaining = _unevaluated_count()
-    if final_remaining > 0:
-        print(
-            f"[judge_loop] Exhausted all {max_retries} retry cycles. {final_remaining} candidates still unevaluated.",
-            file=sys.stderr,
-        )
-    print(f"[judge_loop] Finished. Total evaluated across all retries: {total_processed}")
-    return total_processed
+    print(f"[evaluate] Finished. Total evaluated: {total}")
+    return total
 
 
 def run():
     """
-    Run the full automation: discovery then judge.
-    After the combined crew finishes (discovery + one judge batch),
-    a programmatic loop drains any remaining unevaluated candidates.
+    Run the full automation: discovery crew then direct evaluation pipeline.
     """
     inputs = {
         'thesis_url': 'https://www.coyote.ventures/thesis'
     }
     factory = CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew()
 
-    print("[run] Starting full crew (discovery + judge)...")
+    print("[run] Starting discovery crew...")
     factory.crew().kickoff(inputs=inputs)
 
     remaining = _unevaluated_count()
     if remaining > 0:
-        print(f"\n[run] Full crew finished but {remaining} candidates still unevaluated. Starting judge drain loop...")
-        _drain_judge(factory, inputs)
+        print(f"\n[run] Discovery complete. {remaining} candidates to evaluate...")
+        evaluate_all()
     else:
-        print("[run] All candidates evaluated after full crew run. Done.")
+        print("[run] No candidates to evaluate. Done.")
 
 
 def run_judge_only():
     """
-    Run only the thesis relevance judge (evaluate task). No Discovery.
+    Evaluate unevaluated candidates directly (no discovery, no agent).
     Requires unevaluated candidates already in the DB (e.g. from a prior run or seed).
     """
-    inputs = {
-        'thesis_url': 'https://www.coyote.ventures/thesis'
-    }
-    factory = CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew()
-    _drain_judge(factory, inputs)
+    evaluate_all()
 
 
 def _clear_evaluations() -> int:
@@ -188,14 +163,10 @@ def rescore():
     Delete all existing evaluations and re-score every candidate article
     using the current scoring prompt/rubric.
     """
-    deleted = _clear_evaluations()
+    _clear_evaluations()
     remaining = _unevaluated_count()
-    print(f"[rescore] {remaining} candidates now unevaluated. Starting judge loop...")
-    inputs = {
-        'thesis_url': 'https://www.coyote.ventures/thesis'
-    }
-    factory = CoyoteVenturesWeeklyIntelligenceDigestEmailAutomationCrew()
-    _drain_judge(factory, inputs)
+    print(f"[rescore] {remaining} candidates now unevaluated. Starting evaluation...")
+    evaluate_all()
     print("[rescore] Rescore complete.")
 
 
@@ -247,7 +218,6 @@ def run_with_trigger(trigger_payload_json: str):
     """
     Run the crew with trigger payload (e.g. from CrewAI triggers). Payload is passed as JSON in argv[1].
     """
-    import json
     try:
         trigger_payload = json.loads(trigger_payload_json)
     except json.JSONDecodeError:
