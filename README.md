@@ -1,6 +1,25 @@
-# CoyoteVenturesWeeklyIntelligenceDigestEmailAutomation Crew
+# Coyote Ventures Weekly Intelligence Digest Email Automation
 
-Welcome to the CoyoteVenturesWeeklyIntelligenceDigestEmailAutomation Crew project, powered by [crewAI](https://crewai.com). This template is designed to help you set up a multi-agent AI system with ease, leveraging the powerful and flexible framework provided by crewAI. Our goal is to enable your agents to collaborate effectively on complex tasks, maximizing their collective intelligence and capabilities.
+Welcome to the CoyoteVenturesWeeklyIntelligenceDigestEmailAutomation Crew project, powered by [crewAI](https://crewai.com).
+
+Current Workflow:
+Web scraping API (Serply) scrapes thesis-relevant articles from Google News
+Uses a ChatGPT API to evaluate article titles against core thesis pillars
+An external email services generates emails delivered directly to inboxes
+Slack integration for on-demand news updates and queries
+
+Pipeline Overview
+Web Scraping
+Overview:
+The current process begins with a web scraping API called Serply.io, which scrapes the internet according to a set list of keywords, listed below. The keywords are already time filtered, ensuring that only new articles are being scraped in the first place. These articles are then inserted into a storage system of data tables managed by Supabase.com, which is where we will be reading data from later.
+Article Evaluation Against Thesis
+Overview:
+To evaluate all article titles against the thesis, we will use an OpenAI API and API key, specifically the gpt-4.1 mini model of ChatGPT. The process involves reading 5 articles from the database that we were inserting articles into, pulling the title information, and scoring the title against a summary of the core pillars of the thesis. The evaluations generate a relevance score, a confidence score, focus area relevant to the thesis, an “executive summary”, and a “why this matters”. 
+Email Generation
+Overview:
+The email generation process involves looking at the overall table, now with full article information (url, title, relevance score, publication date, summary, etc) and pulls the first 7-10  articles (can edit number later) with the highest relevancy and the status that it hasn’t been set in the email digest yet. After the creation of the article, articles are marked with the characteristic that they have been sent, so repeated articles should not occur.
+
+
 
 ## Installation
 
