@@ -11,6 +11,8 @@ dependencies = [
     "playwright>=1.49",
     "trafilatura>=2.0",
     "python-dotenv>=1.0",
+    "postmarker",
+    "rapidfuzz>=3.0",
 ]
 
 [project.scripts]

@@ -1,12 +1,84 @@
 """Tool for Discovery agent: insert candidate articles into Supabase coyote_candidates table (insert only)."""
 
 import os
+import re
 import json
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Type, Optional
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
+from rapidfuzz import fuzz
+
+
+# Words that should never be treated as company-name tokens.
+# Covers generic healthcare/tech vocabulary, geographic terms, and common verbs/articles.
+_GENERIC_WORDS = {
+    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "is", "are", "was", "were", "be", "been",
+    "has", "have", "had", "will", "would", "could", "should", "may", "might",
+    "its", "our", "their", "your", "this", "that", "these", "those",
+    "how", "why", "what", "when", "where", "who", "which",
+    # Healthcare/tech generics
+    "health", "healthcare", "digital", "medical", "care", "tech", "new",
+    "mental", "public", "home", "virtual", "data", "platform", "system",
+    "hospital", "clinic", "provider", "patient", "doctor", "nurse",
+    "insurance", "payer", "employer", "government", "federal", "policy",
+    "startup", "company", "firm", "fund", "venture", "capital",
+    "series", "round", "funding", "raises", "million", "billion",
+    "launches", "announces", "expands", "introduces", "unveils", "joins",
+    "big", "small", "large", "major", "key", "top", "best", "first",
+    # Geography generics
+    "united", "states", "america", "american", "national", "state", "city",
+    # Common report/study words
+    "study", "report", "survey", "research", "analysis", "review",
+    "global", "industry", "market", "sector", "service", "services",
+}
+
+
+def _extract_company_bigrams(title: str) -> list[str]:
+    """Return Title-Case word-pair bigrams that look like company names.
+
+    Both words must start with an uppercase letter, be at least 3 characters
+    long (after stripping punctuation), and neither word may appear in the
+    generic vocabulary list.  This catches entities like 'Grow Therapy' or
+    'Bright Health' while ignoring common phrases like 'Mental Health'.
+    """
+    words = re.split(r"\s+", title.strip())
+    bigrams: list[str] = []
+    for i in range(len(words) - 1):
+        w1 = re.sub(r"[^a-zA-Z]", "", words[i])
+        w2 = re.sub(r"[^a-zA-Z]", "", words[i + 1])
+        w1_generic = w1.lower() in _GENERIC_WORDS
+        w2_generic = w2.lower() in _GENERIC_WORDS
+        if (
+            w1 and w2
+            and len(w1) >= 3 and len(w2) >= 3
+            and w1[0].isupper() and w2[0].isupper()
+            and not w1_generic and not w2_generic
+        ):
+            bigrams.append(f"{w1.lower()} {w2.lower()}")
+    return bigrams
+
+
+def _extract_company_unigrams(title: str) -> list[str]:
+    """Return single Title-Case words >= 5 chars that are not in _GENERIC_WORDS.
+
+    Used as a fallback when no bigrams are found, to catch single-word company
+    names like 'Veeva', 'Flatiron', or 'Hims'.
+    """
+    words = re.split(r"\s+", title.strip())
+    result: list[str] = []
+    for w in words:
+        cleaned = re.sub(r"[^a-zA-Z]", "", w)
+        if (
+            cleaned
+            and len(cleaned) >= 5
+            and cleaned[0].isupper()
+            and cleaned.lower() not in _GENERIC_WORDS
+        ):
+            result.append(cleaned.lower())
+    return result
 
 
 class SupabaseWriteCandidatesInput(BaseModel):
@@ -107,14 +179,49 @@ def _parse_published_date(value: Optional[str]) -> Optional[str]:
     return None
 
 
+def _title_is_fuzzy_duplicate(title: str, against: list[str], threshold: int = 75) -> bool:
+    """True if title is a near-duplicate of any string in *against*.
+
+    Two checks are applied (either is sufficient to flag a duplicate):
+    1. fuzz.ratio >= threshold (catches near-identical titles).
+    2. Company-name bigram overlap: if both titles share a Title-Case
+       word-pair that is not generic vocabulary (e.g. 'Grow Therapy'),
+       they are treated as the same story told from a different angle.
+    """
+    if not title or not against:
+        return False
+    title_lower = title.lower()
+
+    company_bigrams = _extract_company_bigrams(title)
+    # Only use unigrams when no bigrams found — reduces false positives
+    company_unigrams = _extract_company_unigrams(title) if not company_bigrams else []
+
+    for existing in against:
+        existing_lower = existing.lower()
+        if fuzz.token_set_ratio(title_lower, existing_lower) >= threshold:
+            return True
+        # Company-name match: same startup / entity, different article angle
+        if company_bigrams:
+            for bigram in company_bigrams:
+                if bigram in existing_lower:
+                    return True
+        # Single-word company fallback (e.g. 'Veeva', 'Flatiron')
+        if company_unigrams:
+            for unigram in company_unigrams:
+                if unigram in existing_lower:
+                    return True
+    return False
+
+
 class SupabaseWriteCandidatesTool(BaseTool):
-    """Discovery agent: insert-only into Supabase coyote_candidates. Duplicate URLs are skipped."""
+    """Discovery agent: insert-only into Supabase coyote_candidates. Duplicate URLs and fuzzy-duplicate titles are skipped."""
 
     name: str = "supabase_write_candidates"
     description: str = (
         "Insert candidate articles into the Supabase coyote_candidates table (Discovery table). "
         "Call with a JSON array of candidate articles from a single SerplyNews search: url (required), title (required), source (optional), published_date (optional). "
-        "Use at most 5 articles per call (one search = one call). If the JSON is truncated, the tool will attempt to salvage all complete articles from the prefix. Duplicate URLs are skipped."
+        "Use at most 5 articles per call (one search = one call). If the JSON is truncated, the tool will attempt to salvage all complete articles from the prefix. "
+        "Duplicate URLs and fuzzy-duplicate titles (vs. articles in the last 7 days) are skipped."
     )
     args_schema: Type[BaseModel] = SupabaseWriteCandidatesInput
 
@@ -198,15 +305,43 @@ class SupabaseWriteCandidatesTool(BaseTool):
 
         inserted = 0
         skipped_duplicates = 0
+        skipped_duplicate_title = 0
         skipped_missing_url = 0
         skipped_older_than_7_days = 0
 
+        # Fetch titles from articles inserted in the last 7 days (for fuzzy dedupe)
+        cutoff_datetime = datetime.now(timezone.utc) - timedelta(days=7)
+        cutoff_iso = cutoff_datetime.strftime("%Y-%m-%dT%H:%M:%SZ")
+        existing_titles: list[str] = []
+        try:
+            result = (
+                client.table("coyote_candidates")
+                .select("title")
+                .gte("created_at", cutoff_iso)
+                .execute()
+            )
+            existing_titles = [r["title"] for r in (result.data or []) if r.get("title")]
+        except Exception:
+            pass
+
+        seen_titles: list[str] = []
         cutoff_date = date.today() - timedelta(days=7)
         for item in data:
             if not isinstance(item, dict):
                 continue
             url_val = item.get("url") or item.get("URL")
             title_val = item.get("title") or item.get("Title") or ""
+
+            title_stripped = title_val.strip()
+            if title_stripped and (
+                _title_is_fuzzy_duplicate(title_stripped, existing_titles)
+                or _title_is_fuzzy_duplicate(title_stripped, seen_titles)
+            ):
+                skipped_duplicate_title += 1
+                continue
+            if title_stripped:
+                seen_titles.append(title_stripped)
+
             if not url_val:
                 skipped_missing_url += 1
                 continue
@@ -245,15 +380,17 @@ class SupabaseWriteCandidatesTool(BaseTool):
                         "received": n_articles,
                         "inserted": inserted,
                         "skipped_duplicates": skipped_duplicates,
+                        "skipped_duplicate_title": skipped_duplicate_title,
                         "skipped_missing_url": skipped_missing_url,
                         "skipped_older_than_7_days": skipped_older_than_7_days,
                     }
                 )
 
-        if skipped_duplicates or skipped_older_than_7_days:
+        if skipped_duplicates or skipped_duplicate_title or skipped_older_than_7_days:
             print(
                 f"[supabase_write_candidates] Inserted {inserted} rows, "
                 f"skipped {skipped_duplicates} duplicate URL(s), "
+                f"skipped {skipped_duplicate_title} duplicate title(s), "
                 f"skipped {skipped_older_than_7_days} older-than-7-days article(s).",
                 file=sys.stderr,
             )
@@ -262,6 +399,7 @@ class SupabaseWriteCandidatesTool(BaseTool):
                 "received": n_articles,
                 "inserted": inserted,
                 "skipped_duplicates": skipped_duplicates,
+                "skipped_duplicate_title": skipped_duplicate_title,
                 "skipped_missing_url": skipped_missing_url,
                 "skipped_older_than_7_days": skipped_older_than_7_days,
                 "message": f"Inserted {inserted} rows into coyote_candidates.",

@@ -28,6 +28,12 @@ from coyote_ventures_weekly_intelligence_digest___email_automation.crew import C
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_read_candidates import SupabaseReadCandidatesTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.thesis_title_relevance_tool import ThesisTitleRelevanceTool
 from coyote_ventures_weekly_intelligence_digest___email_automation.tools.supabase_write_evaluations import SupabaseWriteEvaluationsTool
+from coyote_ventures_weekly_intelligence_digest___email_automation.tools.weekly_digest import (
+    fetch_top_articles,
+    build_email_html,
+    send_email,
+    mark_articles_sent,
+)
 
 
 def _unevaluated_count() -> int:
@@ -170,6 +176,38 @@ def rescore():
     print("[rescore] Rescore complete.")
 
 
+def send_digest(limit: int = 10):
+    """
+    Build and send the weekly intelligence digest email from top unsent articles.
+    Only marks articles as sent after the email is successfully delivered.
+    """
+    from datetime import date
+
+    print(f"[digest] Fetching top {limit} unsent articles...")
+    articles = fetch_top_articles(limit=limit)
+    if not articles:
+        print("[digest] No unsent articles found. Nothing to send.")
+        return
+
+    print(f"[digest] Found {len(articles)} articles. Building email...")
+    html_body = build_email_html(articles)
+    subject = f"Coyote Ventures Weekly Intelligence Digest — {date.today().strftime('%B %d, %Y')}"
+
+    print(f"[digest] Sending email: {subject}")
+    try:
+        response = send_email(subject, html_body)
+        print(f"[digest] Email sent successfully. Postmark response: {response}")
+    except Exception as e:
+        print(f"[digest] FAILED to send email: {e}", file=sys.stderr)
+        print("[digest] Articles were NOT marked as sent.", file=sys.stderr)
+        return
+
+    article_ids = [a["id"] for a in articles if a.get("id")]
+    updated = mark_articles_sent(article_ids)
+    print(f"[digest] Marked {updated}/{len(articles)} articles as sent_in_weekly_digest=true.")
+    print("[digest] Done.")
+
+
 def train(n_iterations: int, filename: str):
     """
     Train the crew for a given number of iterations.
@@ -244,6 +282,8 @@ if __name__ == "__main__":
         run_judge_only()
     elif command == "rescore":
         rescore()
+    elif command == "send_digest":
+        send_digest()
     elif command == "train":
         if len(sys.argv) < 4:
             print("Usage: main.py train <n_iterations> <filename>")

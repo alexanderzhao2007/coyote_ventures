@@ -21,6 +21,74 @@ def _str(val: Any, default: Optional[str], max_len: int) -> Optional[str]:
     return s[:max_len] if len(s) > max_len else s
 
 
+APPROVED_CITIES = {
+    "new york", "los angeles", "chicago",
+    "boston", "san francisco",
+}
+
+NATIONAL_SCOPE_INDICATORS = [
+    "federal", "nationwide", "nationally", "national",
+    "multi-state", "multistate", "cms", "fda", "hhs",
+    "congress", "senate", "white house", "medicaid expansion",
+    "medicare", "across the country", "united states",
+]
+
+CPG_EXCLUSION_KEYWORDS = [
+    "supplement", "nutraceutical", "nutriceutical", "vitamin",
+    "protein powder", "meal replacement", "clean product",
+    "clean food", "clean beverage", "clean label",
+    "superfood", "probiotic", "collagen", "dietary supplement",
+    "sports nutrition", "whey", "plant-based protein",
+    "gummy", "gummies",
+]
+
+
+def _apply_hardcoded_filters(title: str, result: dict) -> dict:
+    """Deterministic post-scoring safety net.  Forces relevance_score=0 if the
+    article clearly fails the CPG/supplement or geographic filters, regardless
+    of what the LLM returned."""
+    title_lower = title.lower()
+    exec_summary = (result.get("exec_summary") or "").lower()
+    focus_tags = (result.get("focus_area_tags") or "").lower()
+    geography = (result.get("geography") or "").lower()
+    companies = (result.get("companies_mentioned") or "").lower()
+    searchable = f"{title_lower} {exec_summary} {focus_tags} {companies}"
+
+    # --- CPG / Supplement gate ---
+    for kw in CPG_EXCLUSION_KEYWORDS:
+        if kw in searchable:
+            result["relevance_score"] = 0
+            result["rejection_reason"] = (
+                f"Hard-coded CPG/supplement filter: matched keyword '{kw}'"
+            )
+            return result
+
+    # --- Geographic gate ---
+    # Only applies when the LLM identified a geography and the score is >0
+    if geography and result.get("relevance_score", 0) > 0:
+        geo_text = f"{geography} {title_lower}"
+        has_national_indicator = any(
+            ind in geo_text for ind in NATIONAL_SCOPE_INDICATORS
+        )
+        has_approved_city = any(
+            city in geo_text for city in APPROVED_CITIES
+        )
+        is_us = (
+            "united states" in geography
+            or "u.s." in geography
+            or "us" == geography.strip()
+            or geography.strip() == ""
+        )
+        if not is_us and not has_approved_city and not has_national_indicator:
+            result["relevance_score"] = 0
+            result["rejection_reason"] = (
+                f"Hard-coded geographic filter: geography '{geography}' "
+                "is not an approved city and has no national-scope indicator"
+            )
+
+    return result
+
+
 class ThesisTitleRelevanceInput(BaseModel):
     """Input schema for Thesis Title Relevance Tool."""
     article_title: str = Field(..., description="The article title only (no body)")
@@ -108,18 +176,23 @@ ARTICLE TITLE ONLY:
 {article_title}
 {context_block}
 
-STEP 1 — CHECK DISQUALIFIERS FIRST (geography and focus-area gates). These override everything else:
-  a) Does the title reference a NON-U.S. country (UK, India, Canada, China, etc.)? If YES → score MUST be ≤ 30, UNLESS the article is an unmistakable 100% match on a thesis focus area (e.g., a named company in a thesis sector raising a specific round). "Related to healthcare abroad" is NOT enough to override.
-  b) Does the title reference a U.S. state, county, or city that is NOT New York, Los Angeles, Chicago, Boston, or San Francisco? If YES and the finding is local in scope (no clear national-scale impact) → score MUST be ≤ 30, same exception as (a).
-  c) Which of the 17 focus areas does this title map to? If NONE → score MUST be ≤ 40, UNLESS the article qualifies as market intelligence (see 50-59 in the rubric), in which case it may score up to 59.
+STEP 1 — CHECK DISQUALIFIERS FIRST (geography, CPG, and focus-area gates). These override everything else:
+  a) NON-U.S. COUNTRY: Does the title reference a NON-U.S. country (UK, India, Canada, China, etc.)? If YES → score MUST be 0. The ONLY exception: the article is an unmistakable 100% match on a thesis focus area (e.g., a named company in a thesis sector raising a specific round). "Related to healthcare abroad" is NOT enough.
+  b) LOCAL/REGIONAL U.S. — APPROVED-CITY GATE: If the title is specific to a single institution, city, county, or state, the score MUST be 0 UNLESS:
+     - the city is one of: New York, Los Angeles, Chicago, Boston, or San Francisco — AND the article still has meaningful health equity or digital health relevance, OR
+     - the article is genuinely national-scale: it involves a federal agency (CMS, FDA, HHS, etc.), sets a federal or multi-state precedent, or describes a program explicitly rolling out across multiple states.
+     A hospital marking an anniversary, a single facility expansion, or a local awareness campaign does NOT qualify as national-scale regardless of topic. When in doubt, score 0.
+  c) CPG / SUPPLEMENTS GATE: If the title describes or implies a company or product that includes dietary supplements, nutraceuticals, vitamins, protein products, meal replacements, "clean" food or beverage products, or any physical consumer product sold directly to consumers, the score MUST be 0. A digital platform or telehealth component does NOT redeem the article if the core or partial offering includes a CPG or supplement product.
+  d) FOCUS-AREA RELEVANCE: Which of the 17 focus areas does this title map to? If NONE → score MUST NOT exceed 40, UNLESS the article qualifies as market intelligence (see 50-59 in the rubric), in which case it may score up to 59.
+     IMPORTANT MAPPING — "AI for healthcare", "agentic AI", "AI-powered health", "AI health platform", "AI-driven care", and any title describing a specifically named AI or digital health product directly map to Focus Area 13 (Data Analytics / AI-driven decision support). A product or platform launch announcement by ANY company — especially a major technology company (Amazon, Google, Microsoft, Apple, etc.) — that introduces a named AI healthcare product qualifies as a direct thesis match for Focus Area 13. Do NOT downgrade these to "market intelligence" (50-59); score them as a direct_thesis_match in the 75-85 range.
 
 STEP 2 — Only if the article passed the geography/focus-area gates above, determine specificity:
   a) Does the title mention a SPECIFIC company, funding round, technology, legislation, or measurable development? Or is it generic/vague?
-  b) Is the geography clearly U.S. national or one of the 5 listed cities?
+  b) Is the geography clearly U.S. national or one of the 5 approved cities?
 
 STEP 3 — Assign a relevance_score using this DETAILED rubric:
   90-100: Title explicitly names a company, funding round, or policy change that DIRECTLY matches a thesis focus area. Rare—reserve for unmistakable hits.
-  80-89:  Title strongly implies a specific thesis focus area AND mentions a concrete detail (company name, dollar amount, named technology, specific legislation).
+  80-89:  Title strongly implies a specific thesis focus area AND mentions a concrete detail (company name, dollar amount, named technology, specific legislation). Product or platform launch announcements (e.g., "Introducing [Company] [Product]: AI for healthcare") that combine a company name with a specific AI or digital health technology name qualify at this tier.
   70-79:  Title clearly maps to a thesis focus area with moderate specificity (names a sector or trend within a focus area, but lacks a concrete company/amount/policy).
   60-69:  Title is related to a thesis focus area but is BROAD or lacks specificity (e.g., "Digital health trends in 2026"). Requires a clear connection to a specific focus area.
   50-59:  MARKET INTELLIGENCE — Title provides valuable context for healthcare investing even though it does not directly match a specific thesis focus area. Examples: major healthcare M&A or IPO activity, broad regulatory/policy changes (CMS, FDA), industry trend reports or market sizing data, large payer/insurer strategy shifts, healthcare workforce or spending trends. The article must still be U.S.-focused and actionable for investment decision-making.
@@ -146,10 +219,11 @@ Return exactly one JSON object with these keys only (no markdown, no explanation
 signal_type: "direct_thesis_match" for score 70+, "market_intelligence" for 50-69, "other" for below 50.
 
 HARD SCORING CAPS — These are the HIGHEST-PRIORITY rules. Apply them LAST and force the score down if violated, even if the rubric above suggested a higher score:
-1. NON-U.S. COUNTRY: If the title mentions or implies ANY country other than the United States (e.g., UK, India, South Africa, Canada, China, Australia, etc.), the relevance_score MUST NOT exceed 30. The ONLY exception: the article is an unmistakable, 100% direct match on a thesis focus area (e.g., a named thesis-sector company with a specific funding amount). Merely being "about healthcare" in another country is NOT enough.
-2. NON-LISTED U.S. LOCALITY: If the title references state-level, county-level, or city-level news for any location other than New York, Los Angeles, Chicago, Boston, or San Francisco — and the scope is local (not clearly national-scale) — the relevance_score MUST NOT exceed 30. Same narrow exception as rule 1.
-3. NO DIRECT FOCUS-AREA RELEVANCE: If the article has no direct relevance to ANY of the 17 investment focus areas, the relevance_score MUST NOT exceed 40 — UNLESS the article qualifies as market intelligence (major M&A, regulatory changes, industry trends, payer strategy shifts, workforce/spending data), in which case it may score up to 59. Generic health news that does not map to a focus area and is not actionable market intelligence does not qualify.
-4. PRIORITY ORDER: Geography caps (rules 1-2) OVERRIDE focus-area relevance. An article can match a thesis focus area perfectly but still score ≤ 30 if it fails geography."""
+1. NON-U.S. COUNTRY: If the title mentions or implies ANY country other than the United States (e.g., UK, India, South Africa, Canada, China, Australia, etc.), the relevance_score MUST be 0. The ONLY exception: the article is an unmistakable, 100% direct match on a thesis focus area (e.g., a named thesis-sector company with a specific funding amount). Merely being "about healthcare" in another country is NOT enough.
+2. LOCAL/REGIONAL U.S. — APPROVED-CITY GATE: If the title is specific to a single institution, city, county, or state, the relevance_score MUST be 0 UNLESS (a) the city is one of: New York, Los Angeles, Chicago, Boston, or San Francisco — AND the article still has meaningful health equity or digital health relevance, OR (b) the article is genuinely national-scale (involves a federal agency, sets a federal or multi-state precedent, or describes a program explicitly rolling out across multiple states). A hospital marking an anniversary, a single facility expansion, or a local awareness campaign does NOT qualify as national-scale. When in doubt, score 0.
+3. CPG / SUPPLEMENTS GATE: If the title describes or implies a company or product that includes dietary supplements, nutraceuticals, vitamins, protein products, meal replacements, "clean" food or beverage products, or any physical consumer product sold directly to consumers, the relevance_score MUST be 0. A digital platform or telehealth component does NOT redeem the article if the core or partial offering includes a CPG or supplement product.
+4. NO DIRECT FOCUS-AREA RELEVANCE: If the article has no direct relevance to ANY of the 17 investment focus areas, the relevance_score MUST NOT exceed 40 — UNLESS the article qualifies as market intelligence (major M&A, regulatory changes, industry trends, payer strategy shifts, workforce/spending data), in which case it may score up to 59. Generic health news that does not map to a focus area and is not actionable market intelligence does not qualify.
+5. PRIORITY ORDER: CPG gate (rule 3) and geography gates (rules 1-2) OVERRIDE focus-area relevance. An article can match a thesis focus area perfectly but still score 0 if it fails geography or CPG rules."""
 
             url = "https://api.openai.com/v1/chat/completions"
             headers = {
@@ -234,6 +308,8 @@ HARD SCORING CAPS — These are the HIGHEST-PRIORITY rules. Apply them LAST and 
                 "companies_mentioned": _str(companies, "", 2048),
                 "rejection_reason": _str(gpt.get("rejection_reason"), None, 1024),
             }
+
+            result = _apply_hardcoded_filters(article_title, result)
             return json.dumps(result)
 
         except Exception as e:

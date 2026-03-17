@@ -27,15 +27,3 @@ search_for_candidate_articles:
     SEARCH LOG: all 12 search queries and how many articles each returned.
   agent: healthcare_news_discovery_specialist
   async_execution: true
-
-evaluate_investment_relevance:
-  description: |
-    Process one batch of up to 3 articles:
-    1. Call supabase_read_candidates(limit=3, offset=0). If count is 0, output "No candidates remaining" and stop.
-    2. For each article, call thesis_title_relevance_tool(article_title=<title>, use_static_thesis=True).
-    3. For each article, call supabase_write_evaluations with 1 evaluation object containing the tool's result plus candidate_id set to that article's "id" from step 1.
-    4. Output a PROCESSED_ARTICLES summary and stop.
-  expected_output: |
-    Evidence that supabase_write_evaluations was called (inserted count).
-    PROCESSED_ARTICLES summary: total_evaluated, accepted, rejected.
-  agent: thesis_relevance_judge
